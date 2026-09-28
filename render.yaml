@@ -9,3 +9,8 @@ services:
     startCommand: npm start
     healthCheckPath: /api/info
     autoDeploy: true
+    envVars:                     # Google Sheets (see tools/google-sheets.gs): set their values in Render's dashboard
+      - key: SHEETS_URL
+        sync: false
+      - key: SHEETS_SECRET
+        sync: false

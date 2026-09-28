@@ -62,7 +62,7 @@ function drawBang(ctx, cx, by, col = MARK) {
   ctx.fillRect(cx - 2, by - 12, 4, 7);
   ctx.fillRect(cx - 2, by - 3, 4, 2);
 }
-// the star by the tree, where the results are collected
+// the star beside Séneca, where the results are collected
 function drawStar(ctx, cx, by) {
   ctx.fillStyle = '#000';
   ctx.fillRect(cx - 5, by - 12, 10, 12);

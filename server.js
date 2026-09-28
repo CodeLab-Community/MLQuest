@@ -46,12 +46,45 @@ const games = new Set();
 const controllers = new Set();
 const slotOf = new Map();   // phone key -> the slot it last had
 // phone id -> its sign-up: the email (null without the personal-data authorization) and both
-// authorizations, kept for sending the student's results on (to Google Sheets, still to be wired)
+// authorizations, sent on with the student's results to Google Sheets (see recordResult)
 const registrations = new Map();
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 let nextId = 1;
 
 function send(ws, msg) { if (ws.readyState === 1) ws.send(JSON.stringify(msg)); }
+
+// ---- Google Sheets: each finished game becomes one row, through the Apps Script web app in
+// tools/google-sheets.gs. SHEETS_URL is that web app's /exec URL and SHEETS_SECRET the secret set
+// in its script properties; without them results are only logged here.
+const SHEETS_URL = process.env.SHEETS_URL || '';
+const SHEETS_SECRET = process.env.SHEETS_SECRET || '';
+const clip = (v, n) => String(v ?? '').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, n);
+async function recordResult(msg) {
+  const reg = registrations.get(msg.player) || {};
+  // name and phone are personal data: kept only if the student authorized it at sign-up
+  const personal = reg.personal === true;
+  const top = Array.isArray(msg.top) ? msg.top : [];
+  const row = {
+    fecha: new Date().toISOString(),
+    jugador: clip(msg.player, 60),
+    nombre: personal ? clip(msg.name, 80) : '',
+    telefono: personal ? clip(msg.phone, 30) : '',
+    correo: personal ? clip(reg.email, 254) : '',
+    autoriza_personales: reg.personal === true ? 'Sí' : reg.personal === false ? 'No' : '',
+    autoriza_sensibles: reg.sensitive === true ? 'Sí' : reg.sensitive === false ? 'No' : '',
+    carrera_1: clip(top[0]?.name, 60), porcentaje_1: top[0]?.pct ?? '',
+    carrera_2: clip(top[1]?.name, 60), porcentaje_2: top[1]?.pct ?? '',
+    carrera_3: clip(top[2]?.name, 60), porcentaje_3: top[2]?.pct ?? '',
+    puntos: JSON.stringify(msg.points || {}),
+    respuestas: (Array.isArray(msg.answers) ? msg.answers : []).map((a) => `${clip(a.lab, 60)} (evento ${Number(a.ev)}): ${clip(a.choice, 1)} — ${clip(a.text, 120)}`).join(' | '),
+  };
+  if (!SHEETS_URL) { console.log('resultado (SHEETS_URL no configurada, no se envía):', JSON.stringify(row)); return; }
+  try {
+    const r = await fetch(SHEETS_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ secret: SHEETS_SECRET, row }) });
+    const out = await r.text();
+    if (!r.ok || !/"ok"\s*:\s*true/.test(out)) console.error('Google Sheets rechazó el resultado:', r.status, out.slice(0, 200));
+  } catch (e) { console.error('No se pudo enviar el resultado a Google Sheets:', e.message); }
+}
 function broadcast(set, msg) { for (const ws of set) send(ws, msg); }
 // what a phone's character looks like: 'm' or 'f', plus a skin and a hair colour (0-2, see colors.js)
 function readLook(o) {
@@ -88,6 +121,7 @@ wss.on('connection', (ws, req) => {
     ws.on('message', (raw) => {
       let msg;
       try { msg = JSON.parse(raw); } catch { return; }
+      if (msg.t === 'record') { recordResult(msg); return; }   // a finished game, for Google Sheets
       if (!msg.id) return;
       for (const c of controllers) if (c.id === msg.id) send(c, msg);
     });
@@ -117,6 +151,7 @@ wss.on('connection', (ws, req) => {
       registrations.set(ws.id, { email, personal, sensitive, at: registrations.get(ws.id)?.at || new Date().toISOString() });
     }
     else if (msg.t === 'look') { ws.look = readLook(msg); broadcast(games, { t: 'look', id: ws.id, look: ws.look }); }
+    else if (msg.t === 'finish') broadcast(games, { t: 'finish', id: ws.id, name: String(msg.name || '').slice(0, 80), phone: String(msg.phone || '').slice(0, 30) });
     else if (['answer', 'seen', 'floor', 'liftClose'].includes(msg.t)) broadcast(games, { ...msg, id: ws.id, slot: ws.slot });
   });
   ws.on('close', () => {

@@ -140,7 +140,8 @@ function addPlayer(id, slot, look = { c: 'm', skin: 0, hair: 0 }) {
     away.delete(id);
     Object.assign(p, { slot, look, input: {}, latch: {}, asking: null, lift: false, near: null });
   } else {
-    p = { id, slot, look, input: {}, latch: {}, score: {}, done: new Set(), asking: null, lift: false, near: null };
+    // answers: every event answered, in order ({ ev, choice }); student: name and phone, once the finale is done
+    p = { id, slot, look, input: {}, latch: {}, score: {}, done: new Set(), answers: [], student: null, asking: null, lift: false, near: null };
     const prev = P; P = p; respawn(); P = prev;
   }
   players.set(id, p);
@@ -373,7 +374,9 @@ function setAnim(a) { if (P.anim !== a) { P.anim = a; P.animT = 0; } }
 // Each room in EVENTS floats an exclamation mark, lit for everyone since the screen is shared.
 // Standing under one and pressing the action button sends its question to that player's phone; each
 // player answers any EVENTS_PER_PLAYER of them, never the same one twice. After the last one they are
-// sent up to the tree on the roof (GOAL), where the action button hands over their top 3 careers.
+// sent up to Séneca on the roof (GOAL), where the action button starts the finale on the phone: a
+// congratulation, the student's name and phone, and then their top 3 careers. That result, with the
+// answers, goes to the server to be recorded (Google Sheets).
 // The same button, in front of a lift door, opens the lift's floor panel on the phone.
 let ws = null;
 const toPhone = (id, msg) => { if (ws && ws.readyState === 1 && id !== 'kb') ws.send(JSON.stringify({ ...msg, id })); };
@@ -400,10 +403,32 @@ function answerEvent(p, choice) {
   if (!ev || !(choice >= 0 && choice < ev.options.length)) return;
   for (const [k, v] of Object.entries(ev.options[choice].s)) p.score[k] = (p.score[k] || 0) + v;
   p.done.add(ev.id);
+  p.answers.push({ ev: ev.id, choice });
   closeAsk(p);
   sendProgress(p);
-  if (finished(p)) notice(p, '¡Completaste tus ' + EVENTS_PER_PLAYER + ' eventos!', GOAL_TEXT, true);
-  else toPhone(p.id, { t: 'saved', room: ev.room, collected: p.done.size, total: EVENTS_PER_PLAYER });
+  // the phone shows "event complete" with a Continuar button, then how many are left (or, after the
+  // last one, where Séneca is)
+  toPhone(p.id, { t: 'saved', room: ev.room, collected: p.done.size, total: EVENTS_PER_PLAYER, next: GOAL_TEXT });
+}
+// The finale at Séneca: the phone congratulates the student and asks for their name and phone. Once
+// that comes back (finishGame), the result is shown and recorded; afterwards Séneca just shows it again.
+function startFinale(p) {
+  if (p.student || p.id === 'kb') { sendResult(p); return; }
+  toPhone(p.id, { t: 'finale' });
+}
+function finishGame(p, name, phone) {
+  if (!finished(p)) return;
+  if (p.student) { sendResult(p); return; }   // already recorded: never twice
+  p.student = { name: String(name || '').slice(0, 80), phone: String(phone || '').slice(0, 30) };
+  sendResult(p);
+  const top = ranking(p.score);
+  // not to a phone: the server records it (see server.js)
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({
+    t: 'record', player: p.id, slot: p.slot, name: p.student.name, phone: p.student.phone,
+    top: top.slice(0, 3).map((c) => ({ key: c.key, name: c.name, pct: c.pct, points: c.points })),
+    points: Object.fromEntries(top.map((c) => [c.key, c.points])),
+    answers: p.answers.map(({ ev, choice }) => { const e = EVENTS.find((x) => x.id === ev); return { ev, lab: e.room, choice: 'ABCDE'[choice], text: e.options[choice].t }; }),
+  }));
 }
 // how far along a player is goes to their own phone only, never onto the shared screen
 function sendProgress(p) { toPhone(p.id, { t: 'progress', collected: p.done.size, total: EVENTS_PER_PLAYER }); }
@@ -451,15 +476,15 @@ function checkMarkers(p) {
   if (p.dead || p.asking || p.lift) return;
   const done = finished(p), atGoal = atMarker(p, GOAL), stop = liftStop(p);
   const ev = atGoal || stop ? null : EVENTS.find((e) => atMarker(p, e));
-  // the button only lights up where it will do something: the lift, an unanswered event, or the tree once finished
+  // the button only lights up where it will do something: the lift, an unanswered event, or Séneca once finished
   setNear(p, stop ? 'lift' : atGoal ? (done ? 'goal' : null) : ev && !done && !p.done.has(ev.id) ? ev.id : null);
   if (!act) return;
   if (stop) openLift(p, stop);
   else if (atGoal) {
-    if (done) sendResult(p);
+    if (done) startFinale(p);
     else {
       const left = EVENTS_PER_PLAYER - p.done.size;
-      notice(p, 'Todavía no', `Te ${left === 1 ? 'falta 1 evento' : `faltan ${left} eventos`}. Respóndelos y vuelve al árbol para ver tus resultados.`);
+      notice(p, 'Todavía no', `Te ${left === 1 ? 'falta 1 evento' : `faltan ${left} eventos`}. Respóndelos y vuelve con Séneca para ver tus resultados.`);
     }
   } else if (ev) {
     if (done) notice(p, 'Ya completaste tus eventos', GOAL_TEXT);
@@ -516,7 +541,7 @@ const MAP_KEY = [
   { icon: (g, x, y) => drawActButton(g, x, y), title: 'Botón de la mano', text: ['Sale sobre ti cuando', 'puedes interactuar'] },
   { icon: (g, x, y) => drawFloorTag(g, x, y - 6, 3), title: 'Ascensor y piso', text: ['En la puerta oprime el', `botón y elige S1 a ${TOP_FLOOR}`] },
   { icon: (g, x, y) => drawLabSign(g, x, y - 6, { name: 'Lab', color: LABS.elec.color }), title: 'Laboratorio', text: ['Su nombre va en el', 'letrero de color'] },
-  { icon: (g, x, y) => drawStar(g, x, y + 6), title: `Árbol (piso ${TOP_FLOOR})`, text: [`Con ${EVENTS_PER_PLAYER} eventos listos,`, 've por tus resultados'] },
+  { icon: (g, x, y) => drawStar(g, x, y + 6), title: `Séneca (piso ${TOP_FLOOR})`, text: [`Con ${EVENTS_PER_PLAYER} eventos listos,`, 've por tus resultados'] },
 ];
 function drawMapKey(g) {
   const x0 = 24, y0 = 4, w = 880, h = 50, cell = w / MAP_KEY.length;
@@ -654,6 +679,7 @@ function connect() {
     else if (m.t === 'input') { if (!players.has(m.id)) addPlayer(m.id, m.slot, m.look); onRemote(players.get(m.id), m.s || {}); }
     else if (m.t === 'answer') { const p = players.get(m.id); if (p) answerEvent(p, m.choice); }
     else if (m.t === 'seen') { const p = players.get(m.id); if (p && p.asking) closeAsk(p); }
+    else if (m.t === 'finish') { const p = players.get(m.id); if (p) finishGame(p, m.name, m.phone); }
     else if (m.t === 'floor') { const p = players.get(m.id); if (p) rideLift(p, m.n); }
     else if (m.t === 'liftClose') { const p = players.get(m.id); if (p) closeLift(p); }
   };

@@ -95,7 +95,7 @@
   #quiz .close { display:block; margin:.75em auto 0; padding:.55em 2.1em; font-size:1.08em; border-radius:0; color:var(--cream); background:var(--slab); border:3px solid #000; box-shadow:inset 0 3px 0 #8a8a8a, 3px 3px 0 rgba(0,0,0,.3); }
   #quiz .nav { display:flex; justify-content:center; gap:.75em; }
   #quiz .nav .close { margin:.75em 0 0; }
-  #quiz .nav .close.go { background:var(--mark); color:#000; box-shadow:inset 0 -4px 0 #d99a00, 3px 3px 0 rgba(0,0,0,.3); }
+  #quiz .close.go { background:var(--mark); color:#000; box-shadow:inset 0 -4px 0 #d99a00, 3px 3px 0 rgba(0,0,0,.3); }
   #quiz .nav .close:disabled { opacity:.45; }
   /* the lift's floor panel: black buttons with yellow numbers, like the display over every lift door */
   #quiz .lift { display:grid; grid-template-columns:repeat(3, 4.6em); gap:.85em; justify-content:center; justify-items:center; margin:.3em auto 0; padding:1em 1.2em;
@@ -150,6 +150,10 @@
   #quiz .reg .yn button { padding:.3em 1.1em .45em; background:#fff; border:3px solid #000; border-radius:0; font-weight:800; box-shadow:inset 0 -3px 0 var(--brown); }
   #quiz .reg .yn button.pick { background:var(--mark); box-shadow:inset 0 -3px 0 #d99a00; }
   #quiz .reg .hint { margin:0; text-align:center; font-size:.9em; min-height:1.3em; }
+  #quiz .reg.form label { display:grid; grid-template-columns:5.5em 1fr; }
+  /* the finale's big line */
+  #quiz .hero { margin:1em auto .2em; max-width:24em; text-align:center; font-size:1.9em; font-weight:800; line-height:1.25; color:#000;
+                background:var(--mark); border:3px solid #000; box-shadow:inset 0 -5px 0 #d99a00, 4px 4px 0 rgba(0,0,0,.3); padding:.6em .8em .75em; }
   #quiz .looks { display:flex; gap:2em; align-items:center; justify-content:center; }
   #quiz .swatches { display:flex; flex-direction:column; gap:1em; }
   #quiz .swatches > div { display:flex; align-items:center; gap:.7em; }
@@ -230,7 +234,7 @@ function showStatus() {
   dot.classList.toggle('on', games > 0);
   txt.textContent = games === 0 ? 'buscando la pantalla de juego…'
     : !progress ? `Jugador ${slot} · jugando`
-    : progress.collected >= progress.total ? `Jugador ${slot} · ${progress.total}/${progress.total} · ve al árbol del piso ${TOP_FLOOR}`
+    : progress.collected >= progress.total ? `Jugador ${slot} · ${progress.total}/${progress.total} · ve con Séneca en el ${TOP_FLOOR}.º piso`
     : `Jugador ${slot} · ${progress.collected}/${progress.total} eventos`;
 }
 
@@ -244,7 +248,8 @@ function connect() {
     const m = JSON.parse(ev.data);
     if (m.t === 'hello') {
       slot = m.slot; document.title = `ML Quest · J${slot}`; progress = null; showCharacter();
-      if (panel !== 'intro' && panel !== 'register') closeQuiz();   // a fresh connection: whatever the game had open is gone
+      // a fresh connection: whatever the game had open is gone (the phone's own forms stay)
+      if (!['intro', 'register', 'finale'].includes(panel)) closeQuiz();
       // first time on this phone: the onboarding, once (a reconnect must not send it back to page 1)
       if (registered() && (!store.get('mlquest-intro') || !char) && panel !== 'intro') showIntro(0);
     }
@@ -252,6 +257,7 @@ function connect() {
     else if (m.t === 'saved') showSaved(m);
     else if (m.t === 'notice') showNotice(m);
     else if (m.t === 'result') showResult(m);
+    else if (m.t === 'finale') showFinale();
     else if (m.t === 'lift') showLift(m);
     else if (m.t === 'close') closeQuiz();
     else if (m.t === 'near') actBtn.classList.toggle('ready', !!m.on);
@@ -356,12 +362,69 @@ function showQuestion(m) {
   qBody.append(stem, list);
   openQuiz('ask');
 }
+// after an event: first "event complete" with a Continuar button, and only then how many are left
 function showSaved(m) {
-  const left = m.total - m.collected;
-  setHeader('Respuesta guardada', m.room, m.collected + '/' + m.total);
-  qBody.appendChild(note(`Te ${left === 1 ? 'falta 1 evento' : `faltan ${left} eventos`}. Busca otro signo de admiración y oprime {act} debajo de él.`));
+  releaseAll();
+  setHeader('¡Evento completado!', m.room, m.collected + '/' + m.total);
+  qBody.append(note('Tu respuesta quedó guardada.'), panelButton('Continuar ▶', () => showLeft(m), true));
   openQuiz('saved');
-  flashTimer = setTimeout(closeQuiz, 1800);
+}
+function showLeft(m) {
+  const left = m.total - m.collected;
+  if (left > 0) {
+    setHeader(`Te ${left === 1 ? 'falta 1 evento' : `faltan ${left} eventos`}`, '', m.collected + '/' + m.total);
+    qBody.append(note('Busca otro signo de admiración y oprime {act} debajo de él.'), panelButton('Seguir jugando', closeQuiz, true));
+  } else {
+    setHeader(`¡Completaste tus ${m.total} eventos!`, '', m.collected + '/' + m.total);
+    qBody.append(note(m.next), panelButton('Entendido', closeQuiz, true));
+  }
+  openQuiz('left');
+}
+// The finale, at Séneca once every event is done: a congratulation, then the student's name and phone
+// (only if they authorized personal data at sign-up), then "Descubrir puntaje" asks the game for the
+// result, which arrives as a 'result' message and replaces this panel.
+function showFinale() {
+  releaseAll();
+  setHeader('¡Felicitaciones!', `Piso ${TOP_FLOOR}`, progressBadge());
+  const big = document.createElement('p'); big.className = 'hero'; big.textContent = '¡Lograste ser Uniandino por un día!';
+  qBody.append(big, panelButton('Continuar ▶', showStudentForm, true));
+  openQuiz('finale');
+}
+function showStudentForm() {
+  const reg = registered() ? JSON.parse(store.get('mlquest-reg')) : {};
+  setHeader('Tus datos', '', progressBadge());
+  const f = document.createElement('div'); f.className = 'reg form';
+  const go = panelButton('Descubrir puntaje', () => {
+    go.disabled = true; go.textContent = 'Calculando…';
+    send({ t: 'finish', name: name ? name.value.trim() : '', phone: phone ? phone.value.trim() : '' });
+  }, true);
+  let name = null, phone = null;
+  if (reg.personal) {
+    const field = (label, attrs) => {
+      const l = document.createElement('label'); l.textContent = label;
+      const i = Object.assign(document.createElement('input'), attrs);
+      i.addEventListener('input', check);
+      l.appendChild(i); f.appendChild(l);
+      return i;
+    };
+    name = field('Nombre', { type: 'text', placeholder: 'Tu nombre completo', autocomplete: 'name', maxLength: 80 });
+    phone = field('Teléfono', { type: 'tel', placeholder: '300 123 4567', autocomplete: 'tel', inputMode: 'tel', maxLength: 30 });
+  } else {
+    f.appendChild(note('Como no autorizaste el uso de tus datos personales, no te pediremos nombre ni teléfono.'));
+  }
+  const hint = document.createElement('p'); hint.className = 'hint'; f.appendChild(hint);
+  function check() {
+    if (!name) return;
+    const digits = phone.value.replace(/\D/g, '').length;
+    const okName = name.value.trim().length >= 2, okPhone = digits >= 7 && digits <= 15;
+    phone.classList.toggle('bad', !!phone.value.trim() && !okPhone);
+    go.disabled = !okName || !okPhone;
+    hint.textContent = phone.value.trim() && !okPhone ? 'Revisa tu teléfono.' : '';
+  }
+  const nav = document.createElement('div'); nav.className = 'nav'; nav.appendChild(go);
+  qBody.append(f, nav);
+  check();
+  openQuiz('finale');
 }
 function showNotice(m) {
   releaseAll();
@@ -467,7 +530,11 @@ function showRegister() {
 // ---- onboarding: what the map's symbols mean, the controls, and the goal ----
 // The symbols are drawn with the game's own drawing code (symbols.js) and cut from the real map, so
 // each one looks here exactly as it does on the big screen.
-const mapImg = new Image(); mapImg.src = 'ML.png';
+// the map as the big screen shows it, composed from its layers (back to front, as in game.js)
+const mapImg = document.createElement('canvas'); mapImg.width = 1024; mapImg.height = 576;
+const mapReady = Promise.all(['OtroFondo', 'Background', 'Suelos', 'Plataforma', 'Decoracion'].map((n) => new Promise((res) => {
+  const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = `layers/${n}.png`;
+}))).then((imgs) => { const g = mapImg.getContext('2d'); for (const i of imgs) if (i) g.drawImage(i, 0, 0); });
 function symbolCanvas(w, h, scale, paint) {
   // drawn at the phone's real resolution: the signs come out smooth, the pixel art stays crisp
   const k = scale * (devicePixelRatio || 1);
@@ -475,8 +542,7 @@ function symbolCanvas(w, h, scale, paint) {
   // sized in em (13px = 1em as drawn), so the symbols shrink with the panel when it has to fit
   c.style.width = w * scale / 13 + 'em'; c.style.height = h * scale / 13 + 'em';
   const g = c.getContext('2d'); g.setTransform(k, 0, 0, k, 0, 0); g.imageSmoothingEnabled = false;
-  const go = () => paint(g);
-  if (mapImg.complete) go(); else mapImg.addEventListener('load', go, { once: true });
+  mapReady.then(() => paint(g));
   return c;
 }
 function legendItem(sym, title, text) {
@@ -494,7 +560,7 @@ function mapSymbols() {
   const mini = document.createElement('div'); mini.className = 'mini'; paintSprite(mini, char);
   const tag = document.createElement('div'); tag.className = 'tag'; tag.textContent = 'P' + slot; tag.style.color = tagColor();
   me.append(tag, mini);
-  const treeX = GOAL.x - 14, treeY = GOAL.row - 48;
+  const senX = GOAL.x - 14, senY = GOAL.row - 48;   // Séneca and her star, cut from the map
   return [
     legendItem(symbolCanvas(16, 18, 3, (g) => drawBang(g, 8, 16)), 'Evento',
       'Párate debajo y oprime {act} para responder su pregunta.'),
@@ -504,7 +570,7 @@ function mapSymbols() {
       `Frente a sus puertas oprime {act} y elige un piso de S1 a ${TOP_FLOOR}.`),
     legendItem(symbolCanvas(13, 12, 3, (g) => drawFloorTag(g, 6, 1, 3)), 'Número de piso',
       `Sobre cada ascensor. Los pisos van de S1 a ${TOP_FLOOR}.`),
-    legendItem(symbolCanvas(66, 50, 1, (g) => { g.drawImage(mapImg, treeX, treeY, 66, 50, 0, 0, 66, 50); drawStar(g, GOAL.x - treeX, GOAL.row - 20 - treeY); }), 'Árbol (piso ' + TOP_FLOOR + ')',
+    legendItem(symbolCanvas(66, 50, 1, (g) => { g.drawImage(mapImg, senX, senY, 66, 50, 0, 0, 66, 50); drawStar(g, GOAL.x - senX, GOAL.row - 20 - senY); }), `Séneca (piso ${TOP_FLOOR})`,
       `Con tus ${EVENTS_PER_PLAYER} eventos listos, oprime {act} junto a la estrella para ver tus resultados.`),
     legendItem(me, 'Tú', 'Tu personaje y tu etiqueta, del mismo color que en la pantalla.'),
   ];
@@ -516,7 +582,7 @@ function controlKeys() {
     d.appendChild(k); richText(d, text);
     return d;
   };
-  const act = key('', '#ffd23f', 'Interactuar: eventos, ascensor y árbol');
+  const act = key('', '#ffd23f', 'Interactuar: eventos, ascensor y Séneca');
   act.firstChild.appendChild(Object.assign(document.createElement('img'), { src: HAND_URL, alt: '' }));
   const lr = key('<span>◀</span><span>▶</span>', '', 'Moverte a los lados');
   lr.firstChild.classList.add('lrk');
@@ -535,7 +601,7 @@ function pickLook(change) {
 function lookPicker() {
   const g = document.createElement('div'); g.className = 'looks';
   const cards = document.createElement('div'); cards.className = 'chars';
-  for (const [c, label] of [['m', 'Masculino'], ['f', 'Femenino']]) {
+  for (const [c, label] of [['m', 'Nova'], ['f', 'Aura']]) {
     const b = document.createElement('button'); if (c === char) b.classList.add('pick');
     const pic = document.createElement('div'); pic.className = 'pic'; paintSprite(pic, c);
     b.append(pic, label);
@@ -569,7 +635,7 @@ const INTRO = [
       'Recorre el edificio y busca los signos de admiración: cada uno es un evento de un laboratorio.',
       `Párate debajo y oprime {act}. Responde ${EVENTS_PER_PLAYER} eventos distintos, sin límite de tiempo.`,
       `Para cambiar de piso usa las escaleras o el ascensor (pisos S1 a ${TOP_FLOOR}).`,
-      `Cuando termines, ve al árbol del piso ${TOP_FLOOR} y oprime {act} para ver tus 3 carreras más afines.`,
+      `Cuando termines, ve con Séneca en el ${TOP_FLOOR}.º piso y oprime {act} para ver tus 3 carreras más afines.`,
     ]) ol.appendChild(richText(document.createElement('li'), s));
     return ol;
   } },

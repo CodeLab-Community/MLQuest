@@ -16,7 +16,7 @@ const CAREERS = {
   BIO: 'Ingeniería Biomédica',
 };
 
-const EVENTS_PER_PLAYER = 4;   // each player answers this many rooms, then collects the result at the tree
+const EVENTS_PER_PLAYER = 4;   // each player answers this many rooms, then collects the result from Séneca
 
 // The floors, numbered as the lift and every screen show them. `doorFrom` marks a floor whose art
 // has no lift door drawn — its door is painted on, copied from the door at that other floor's row.
@@ -53,6 +53,7 @@ const LABS = {
   robot:  { name: 'Lab AIA',                      room: [728, 988], signY: 216, area: 'Industrial y Mecánica',   color: '#ff8a65' },
   bio:    { name: 'Lab Ingeniería de Tejidos',    room: [422, 727], signY: 164, area: 'Biomédica y Datos',       color: '#ff9ecf' },
   prof:   { name: 'Oficinas de Profesores',       room: [488, 985], signY: 111, area: 'Civil y Ambiental',       color: '#e6d36a' },
+  data:   { name: 'Lab Data',                     room: [37, 237],  signY: 111, area: 'Ciencia de Datos',        color: '#b8bcf2' },
 };
 for (const lab of Object.values(LABS)) lab.x = Math.round((lab.room[0] + lab.room[1]) / 2);
 
@@ -153,20 +154,33 @@ const EVENTS = [
       { t: 'Mides cómo afecta el calor a quienes trabajan ahí.', s: { BIO: 3, DAT: 1 } },
     ],
   },
+  {
+    // the building-wide challenge (general event, version B): one point to each of two careers per option
+    id: 9, item: 'Reto del edificio', lab: 'data', row: 155,
+    context: 'La universidad lanzó un reto: mejorar el edificio con una sola idea. El mejor proyecto se construye de verdad.',
+    question: '¿Qué propones?',
+    options: [
+      { t: 'Una app que muestre qué salones están libres en tiempo real.', s: { SIS: 1, DAT: 1 } },   // software alimentado por datos
+      { t: 'Paneles solares en el techo para gastar menos energía.', s: { ELE: 1, AMB: 1 } },         // energía y sostenibilidad
+      { t: 'Un robot que lleve los pedidos de la cafetería.', s: { MEC: 1, ELN: 1 } },                // la máquina y su circuito
+      { t: 'Pasillos rediseñados para que no haya trancones entre clases.', s: { CIV: 1, IND: 1 } },  // espacio construido y flujo de personas
+      { t: 'Un filtro que limpie el aire de los salones.', s: { QUI: 1, BIO: 1 } },                   // materiales pensados para la salud
+    ],
+  },
 ];
 // each event's place, room and floor come from the tables above, never typed in twice: its ! hangs
 // centred on its lab's title
 for (const ev of EVENTS) { ev.x = LABS[ev.lab].x; ev.room = LABS[ev.lab].name; ev.floor = floorName(ev.row); }
 
-// The tree on the roof terrace, top right: once a player has answered all their events, pressing
-// the action button beside it hands over their top 3 careers. The marker sits on the terrace just left of the
+// Séneca, on the roof terrace of floor 8, top right: once a player has answered all their events,
+// pressing the action button at the star beside her starts the finale and hands over their top 3 careers. The marker sits on the terrace just left of the
 // planter; the planter itself (x0..x1, from its rim down to the terrace) is made solid, since the
 // map art gives it no floor underneath and players would otherwise drop through it.
 const GOAL = { x: 938, row: 102, planter: { x0: 948, x1: 983, top: 90, bottom: 104 } };
 // {act} in a message stands for the action button: the phone shows its icon there
-const GOAL_TEXT = `Sube al piso ${TOP_FLOOR} y ve al árbol de la esquina superior derecha. Oprime {act} junto a él para ver tus resultados.`;
+const GOAL_TEXT = `Ve con Séneca en el ${TOP_FLOOR}.º piso y oprime {act} a su lado para ver tus resultados.`;
 
-// All the points each career has on offer across the 40 options. They are not equal (15 to 17),
+// All the points each career has on offer across every option. They are not equal,
 // so the ranking divides by this first — the correction the test document asks for.
 const CAREER_MAX = (() => {
   const max = {};
