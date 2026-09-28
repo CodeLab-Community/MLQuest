@@ -138,6 +138,24 @@
   #quiz .chars button { display:flex; flex-direction:column; align-items:center; gap:.5em; padding:.8em 1.4em 1em; background:var(--cream);
                         box-shadow:inset 0 -5px 0 var(--brown), 3px 3px 0 rgba(0,0,0,.3); font-weight:800; font-size:1.1em; }
   #quiz .chars button.pick { background:var(--mark); box-shadow:inset 0 -5px 0 #d99a00, 3px 3px 0 rgba(0,0,0,.3); }
+  /* sign-up: the email and the two data authorizations, before anything else */
+  #quiz .reg { width:min(46em, 100%); margin:0 auto; display:grid; gap:.55em; }
+  #quiz .reg .doc { text-align:center; line-height:1.4; }
+  #quiz .reg .doc a { color:var(--ink); font-weight:700; }
+  #quiz .reg label { display:flex; align-items:center; gap:.7em; font-weight:700; }
+  #quiz .reg input { flex:1; min-width:0; font:inherit; font-size:1.05em; padding:.45em .6em; border:3px solid #000; border-radius:0; background:#fff; color:var(--ink); }
+  #quiz .reg input.bad { border-color:#c0392b; }
+  #quiz .reg .yn { display:flex; align-items:center; gap:.6em; background:var(--cream); border:3px solid #000; box-shadow:inset 0 -4px 0 var(--brown); padding:.4em .6em .6em; }
+  #quiz .reg .yn span { flex:1; font-weight:700; }
+  #quiz .reg .yn button { padding:.3em 1.1em .45em; background:#fff; border:3px solid #000; border-radius:0; font-weight:800; box-shadow:inset 0 -3px 0 var(--brown); }
+  #quiz .reg .yn button.pick { background:var(--mark); box-shadow:inset 0 -3px 0 #d99a00; }
+  #quiz .reg .hint { margin:0; text-align:center; font-size:.9em; min-height:1.3em; }
+  #quiz .looks { display:flex; gap:2em; align-items:center; justify-content:center; }
+  #quiz .swatches { display:flex; flex-direction:column; gap:1em; }
+  #quiz .swatches > div { display:flex; align-items:center; gap:.7em; }
+  #quiz .swatches b { width:4.5em; font-size:1.05em; }
+  #quiz .swatches button { width:2.8em; height:2.8em; padding:0; border:3px solid #000; box-shadow:inset 0 -4px 0 rgba(0,0,0,.25); }
+  #quiz .swatches button.pick { outline:4px solid var(--mark); outline-offset:2px; }
   #quiz .chars .pic { width:6em; height:6em; background:0 0 / 400% 100% no-repeat; image-rendering:pixelated; animation:idle2 .67s steps(4) infinite; }
   .rotate { display:none; position:fixed; inset:0; background:var(--planks); font-weight:700; z-index:9; align-items:center; justify-content:center; text-align:center; padding:24px; font-size:18px; }
   @media (orientation:portrait) { .rotate { display:flex; } }
@@ -185,15 +203,20 @@ const store = {   // per-phone flags; if storage is blocked they just last as lo
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch {} },
 };
-// the character this phone plays: 'm' or 'f' (null until the student picks one)
+// the character this phone plays: 'm' or 'f' (null until the student picks one), and its skin and
+// hair colour (indexes into SKINS / HAIRS in colors.js)
 let char = store.get('mlquest-char');
+const storedIndex = (k) => { const n = Number(store.get(k)); return Number.isInteger(n) && n >= 0 && n <= 2 ? n : 0; };
+let skin = storedIndex('mlquest-skin'), hair = storedIndex('mlquest-hair');
 // this slot's colour, the same one the game gives it (colors.js); '?' before the server has said
 const tagColor = () => (typeof slot === 'number' ? colorFor(slot) : '');
-// paint a character's Idle sheet, shirt in this player's colour, as an element's background
+// each character's Idle sheet, painted as an element's background in this player's colours
+const idleSheets = {};
 function paintSprite(el, c) {
-  const img = new Image();
-  img.onload = () => { el.style.backgroundImage = `url(${recolorSheet(img, tagColor()).toDataURL()})`; };
-  img.src = `sprites/${c === 'f' ? 'f/' : ''}Idle.png`;
+  const paint = () => { el.style.backgroundImage = `url(${recolorSheet(idleSheets[c], { shirt: tagColor(), skin, hair }).toDataURL()})`; };
+  if (idleSheets[c]?.complete) return paint();
+  if (!idleSheets[c]) { idleSheets[c] = new Image(); idleSheets[c].src = `sprites/${c === 'f' ? 'f/' : ''}Idle.png`; }
+  idleSheets[c].addEventListener('load', paint, { once: true });
 }
 function showCharacter() {
   const sp = document.getElementById('meSprite');
@@ -215,15 +238,15 @@ function send(msg = { t: 'input', s: { ...state } }) {
   if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg));
 }
 function connect() {
-  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?role=controller&key=${KEY}&char=${char || 'm'}`);
-  ws.onopen = () => { txt.textContent = 'conectado'; send(); };
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?role=controller&key=${KEY}&char=${char || 'm'}&skin=${skin}&hair=${hair}`);
+  ws.onopen = () => { txt.textContent = 'conectado'; send(); if (registered()) send({ t: 'register', ...JSON.parse(store.get('mlquest-reg')) }); };
   ws.onmessage = (ev) => {
     const m = JSON.parse(ev.data);
     if (m.t === 'hello') {
       slot = m.slot; document.title = `ML Quest · J${slot}`; progress = null; showCharacter();
-      if (panel !== 'intro') closeQuiz();   // a fresh connection: whatever the game had open is gone
+      if (panel !== 'intro' && panel !== 'register') closeQuiz();   // a fresh connection: whatever the game had open is gone
       // first time on this phone: the onboarding, once (a reconnect must not send it back to page 1)
-      if ((!store.get('mlquest-intro') || !char) && panel !== 'intro') showIntro(0);
+      if (registered() && (!store.get('mlquest-intro') || !char) && panel !== 'intro') showIntro(0);
     }
     if (m.t === 'ask') showQuestion(m);
     else if (m.t === 'saved') showSaved(m);
@@ -387,6 +410,60 @@ function showLift(m) {
   openQuiz('lift');
 }
 
+// ---- sign-up: the very first thing on a phone. The student's email, and whether they authorize the
+// use of their personal and sensitive data. Without the personal-data authorization the email is not
+// kept, and they still get to play.
+const DATA_POLICY_URL = 'https://www.uniandes.edu.co/es/descargar/documento-documento-sobre-la-autorizacion-de-uso-de-datos-personales-y-propiedad-intelectual-otorgada-la-universidad-en-formularios-electronicos';
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const registered = () => !!store.get('mlquest-reg');
+function showRegister() {
+  releaseAll();
+  setHeader('Antes de empezar', 'Registro', '');
+  const answers = { sensitive: null, personal: null };
+  const f = document.createElement('div'); f.className = 'reg';
+  const doc = document.createElement('p'); doc.className = 'doc';
+  doc.append('Autorización para el uso de datos personales: ');
+  doc.appendChild(Object.assign(document.createElement('a'), { href: DATA_POLICY_URL, target: '_blank', rel: 'noopener', textContent: 'Autorizacion-uso-de-datos-personales.pdf' }));
+  const label = document.createElement('label'); label.textContent = 'Correo';
+  const email = Object.assign(document.createElement('input'), { type: 'email', placeholder: 'tu@correo.com', autocomplete: 'email', inputMode: 'email' });
+  email.setAttribute('autocapitalize', 'off'); email.spellcheck = false;
+  label.appendChild(email);
+  const yesNo = (text, key) => {
+    const row = document.createElement('div'); row.className = 'yn';
+    row.appendChild(Object.assign(document.createElement('span'), { textContent: text }));
+    for (const [word, v] of [['Sí', true], ['No', false]]) {
+      const b = document.createElement('button'); b.textContent = word;
+      b.addEventListener('click', () => {
+        answers[key] = v;
+        row.querySelectorAll('button').forEach((x) => x.classList.toggle('pick', x === b));
+        check();
+      });
+      row.appendChild(b);
+    }
+    return row;
+  };
+  const hint = document.createElement('p'); hint.className = 'hint';
+  const go = panelButton('Continuar ▶', () => {
+    const reg = { email: answers.personal ? email.value.trim() : null, sensitive: answers.sensitive, personal: answers.personal };
+    store.set('mlquest-reg', JSON.stringify(reg));
+    send({ t: 'register', ...reg });
+    if (!store.get('mlquest-intro') || !char) showIntro(0); else closeQuiz();
+  }, true);
+  function check() {
+    const ok = EMAIL_RE.test(email.value.trim());
+    email.classList.toggle('bad', !!email.value.trim() && !ok);
+    go.disabled = answers.sensitive === null || answers.personal === null || (answers.personal && !ok);
+    hint.textContent = answers.personal === false ? 'Sin esta autorización no guardaremos tu correo, pero igual puedes jugar.'
+      : email.value.trim() && !ok ? 'Revisa tu correo.' : '';
+  }
+  email.addEventListener('input', check);
+  const nav = document.createElement('div'); nav.className = 'nav'; nav.appendChild(go);
+  f.append(doc, label, yesNo('Acepto el tratamiento de datos sensibles', 'sensitive'), yesNo('Acepto el tratamiento de datos personales', 'personal'), hint);
+  qBody.append(f, nav);
+  check();
+  openQuiz('register');
+}
+
 // ---- onboarding: what the map's symbols mean, the controls, and the goal ----
 // The symbols are drawn with the game's own drawing code (symbols.js) and cut from the real map, so
 // each one looks here exactly as it does on the big screen.
@@ -445,25 +522,45 @@ function controlKeys() {
   lr.firstChild.classList.add('lrk');
   return [lr, key('SALTO', '#3a5fcd', 'Saltar escalones y muebles'), key('DASH', '#2f8f5b', 'Impulso rápido'), act];
 }
-function pickChar(c) {
-  char = c; store.set('mlquest-char', c);
-  send({ t: 'char', c });
+// a change to the look: keep it on the phone, tell the game, and redraw the choice page
+function pickLook(change) {
+  if (change.char) char = change.char;
+  if (change.skin !== undefined) skin = change.skin;
+  if (change.hair !== undefined) hair = change.hair;
+  store.set('mlquest-char', char || ''); store.set('mlquest-skin', skin); store.set('mlquest-hair', hair);
+  if (char) send({ t: 'look', c: char, skin, hair });
   showCharacter();
   showIntro(0);
 }
-function charCards() {
-  const g = document.createElement('div'); g.className = 'chars';
+function lookPicker() {
+  const g = document.createElement('div'); g.className = 'looks';
+  const cards = document.createElement('div'); cards.className = 'chars';
   for (const [c, label] of [['m', 'Masculino'], ['f', 'Femenino']]) {
     const b = document.createElement('button'); if (c === char) b.classList.add('pick');
     const pic = document.createElement('div'); pic.className = 'pic'; paintSprite(pic, c);
     b.append(pic, label);
-    b.addEventListener('click', () => pickChar(c));
-    g.appendChild(b);
+    b.addEventListener('click', () => pickLook({ char: c }));
+    cards.appendChild(b);
   }
+  const rows = document.createElement('div'); rows.className = 'swatches';
+  // each swatch shows the shade that covers most of the sprite: the skin's light one, the hair's mid one
+  for (const [title, list, current, field, shade] of [['Piel', SKINS, skin, 'skin', 0], ['Cabello', HAIRS, hair, 'hair', 1]]) {
+    const row = document.createElement('div');
+    row.appendChild(Object.assign(document.createElement('b'), { textContent: title }));
+    list.forEach((opt, i) => {
+      const b = document.createElement('button'); b.setAttribute('aria-label', `${title} ${opt.name}`); b.title = opt.name;
+      b.style.background = rgbCss(opt.shades[shade]);
+      if (i === current) b.classList.add('pick');
+      b.addEventListener('click', () => pickLook({ [field]: i }));
+      row.appendChild(b);
+    });
+    rows.appendChild(row);
+  }
+  g.append(cards, rows);
   return g;
 }
 const INTRO = [
-  { title: 'Elige tu personaje', body: charCards },
+  { title: 'Elige tu personaje', body: lookPicker },
   { title: 'Símbolos del mapa', body: () => { const g = document.createElement('div'); g.className = 'legend'; g.append(...mapSymbols()); return g; } },
   { title: 'Controles', body: () => { const g = document.createElement('div'); g.className = 'keys'; g.append(...controlKeys()); return g; } },
   { title: 'Tu misión', body: () => {
@@ -509,6 +606,7 @@ for (const btn of document.querySelectorAll('button[data-b]')) {
 document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
 document.addEventListener('gesturestart', (e) => e.preventDefault());
 addEventListener('blur', () => { for (const k in state) state[k] = false; document.querySelectorAll('.on').forEach((b) => b.classList.remove('on')); send(); });
+if (!registered()) showRegister();
 connect();
 </script>
 </body>

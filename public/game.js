@@ -112,7 +112,7 @@ const KEYMAP = {
 addEventListener('keydown', (e) => {
   if (e.code === 'KeyF') { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.(); }
   if (e.code === 'KeyI') document.getElementById('bar').classList.toggle('hide');
-  if (e.code === 'KeyC') { const p = keyboardPlayer(); p.char = p.char === 'f' ? 'm' : 'f'; }   // switch the keyboard player's character
+  if (e.code === 'KeyC') { const p = keyboardPlayer(); p.look = { ...p.look, c: p.look.c === 'f' ? 'm' : 'f' }; }   // switch the keyboard player's character
 });
 addEventListener('dblclick', () => { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.(); });
 function keyboardPlayer() {
@@ -134,13 +134,13 @@ let P;   // the player currently being updated / drawn
 // A phone that drops its connection (screen lock, weak signal, a reload) comes back with the same id,
 // so its player is parked here instead of thrown away: answers, score and place all survive.
 const away = new Map();
-function addPlayer(id, slot, char = 'm') {
+function addPlayer(id, slot, look = { c: 'm', skin: 0, hair: 0 }) {
   let p = away.get(id);
   if (p) {
     away.delete(id);
-    Object.assign(p, { slot, char, input: {}, latch: {}, asking: null, lift: false, near: null });
+    Object.assign(p, { slot, look, input: {}, latch: {}, asking: null, lift: false, near: null });
   } else {
-    p = { id, slot, char, input: {}, latch: {}, score: {}, done: new Set(), asking: null, lift: false, near: null };
+    p = { id, slot, look, input: {}, latch: {}, score: {}, done: new Set(), asking: null, lift: false, near: null };
     const prev = P; P = p; respawn(); P = prev;
   }
   players.set(id, p);
@@ -468,13 +468,14 @@ function checkMarkers(p) {
   }
 }
 
-// The building is composited from its 4 layers, back to front. Floors whose art has no lift door
+// The building is composited from its 5 layers, back to front. Floors whose art has no lift door
 // drawn (`doorFrom` set) get one painted on, copied from another floor's door. The signs — floor
 // numbers, lab titles, the key in the sky — go on their own canvas instead (drawSigns, below).
-function paintBuilding(background, suelos, plataforma, decoracion) {
+function paintBuilding(otroFondo, background, suelos, plataforma, decoracion) {
   const c = document.createElement('canvas'); c.width = W; c.height = H;
   const g = c.getContext('2d');
   g.imageSmoothingEnabled = false;
+  g.drawImage(otroFondo, 0, 0);   // the backmost layer: everything else is drawn over it
   g.drawImage(background, 0, 0);
   g.drawImage(suelos, 0, 0);
   g.drawImage(plataforma, 0, 0);
@@ -578,20 +579,20 @@ addEventListener('keydown', (e) => {
 
 // ---------- render ----------
 let bg; const sheets = { m: {}, f: {} };   // character ('m' or 'f') -> { anim: image }
-const tinted = new Map();      // slot + character -> { anim: canvas }, the sheets with the shirt in the slot's colour (colors.js)
+const tinted = new Map();      // slot + look -> { anim: canvas }, the sheets in the slot's shirt colour and the player's skin and hair (colors.js)
 const tagColor = (p) => colorFor(p.slot);
 
-function tintedSheets(slot, char) {
-  const key = slot + char;
+function tintedSheets(slot, look) {
+  const key = `${slot}${look.c}${look.skin}${look.hair}`;
   if (tinted.has(key)) return tinted.get(key);
   const out = {};
-  for (const [name, img] of Object.entries(sheets[char])) out[name] = recolorSheet(img, colorFor(slot));
+  for (const [name, img] of Object.entries(sheets[look.c])) out[name] = recolorSheet(img, { shirt: colorFor(slot), skin: look.skin, hair: look.hair });
   tinted.set(key, out);
   return out;
 }
 
 function drawPlayer() {
-  const def = SPRITES[P.anim], img = tintedSheets(P.slot, P.char)[P.anim];
+  const def = SPRITES[P.anim], img = tintedSheets(P.slot, P.look)[P.anim];
   let f = Math.floor(P.animT * def.fps);
   f = def.loop ? f % def.n : Math.min(f, def.n - 1);
   if (P.dead && P.deadT > DEATH_TIME - 0.4 && Math.floor(P.deadT * 20) % 2) return; // blink before respawn
@@ -640,17 +641,17 @@ function connect() {
     const m = JSON.parse(ev.data);
     if (m.t === 'join') {
       const p = players.get(m.id);
-      if (!p) addPlayer(m.id, m.slot, m.c);
+      if (!p) addPlayer(m.id, m.slot, m.look);
       else {
         // the same phone again on a fresh connection: whatever panel it had open is gone, so let the
         // player open it again, and remind the phone how far along it is
-        Object.assign(p, { slot: m.slot, char: m.c, asking: null, lift: false, near: null });
+        Object.assign(p, { slot: m.slot, look: m.look, asking: null, lift: false, near: null });
         sendProgress(p);
       }
     }
     else if (m.t === 'leave') removePlayer(m.id);
-    else if (m.t === 'char') { const p = players.get(m.id); if (p) p.char = m.c; }
-    else if (m.t === 'input') { if (!players.has(m.id)) addPlayer(m.id, m.slot, m.c); onRemote(players.get(m.id), m.s || {}); }
+    else if (m.t === 'look') { const p = players.get(m.id); if (p) p.look = m.look; }
+    else if (m.t === 'input') { if (!players.has(m.id)) addPlayer(m.id, m.slot, m.look); onRemote(players.get(m.id), m.s || {}); }
     else if (m.t === 'answer') { const p = players.get(m.id); if (p) answerEvent(p, m.choice); }
     else if (m.t === 'seen') { const p = players.get(m.id); if (p && p.asking) closeAsk(p); }
     else if (m.t === 'floor') { const p = players.get(m.id); if (p) rideLift(p, m.n); }
@@ -662,17 +663,17 @@ function connect() {
   };
 }
 
-const LAYERS = ['Background', 'Suelos', 'Plataforma', 'Decoracion', 'Suelos-Escaleras', 'Plataforma-Escaleras'];
+const LAYERS = ['OtroFondo', 'Background', 'Suelos', 'Plataforma', 'Decoracion', 'Suelos-Escaleras', 'Plataforma-Escaleras'];
 (async function init() {
   const [layers, ...imgs] = await Promise.all([
     Promise.all(LAYERS.map((n) => loadImg(`layers/${n}.png`))),
     ...Object.keys(SPRITES).map((n) => loadImg(`sprites/${n}.png`)),
     ...Object.keys(SPRITES).map((n) => loadImg(`sprites/f/${n}.png`)),
   ]);
-  const [background, suelos, plataforma, decoracion, suelosEsc, plataformaEsc] = layers;
+  const [otroFondo, background, suelos, plataforma, decoracion, suelosEsc, plataformaEsc] = layers;
   Object.keys(SPRITES).forEach((n, i) => { sheets.m[n] = imgs[i]; sheets.f[n] = imgs[i + Object.keys(SPRITES).length]; });
   buildCollision(suelos, plataforma, suelosEsc, plataformaEsc);   // the signs painted next must never become floors
-  bg = paintBuilding(background, suelos, plataforma, decoracion);
+  bg = paintBuilding(otroFondo, background, suelos, plataforma, decoracion);
   drawSigns();
   // disabled on purpose: this was the unexplained solid box Sergio kept finding in the art — it
   // isn't needed (the goal trigger is its own zone check, not tied to standing on the planter),

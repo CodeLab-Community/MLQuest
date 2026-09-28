@@ -45,10 +45,19 @@ const wss = new WebSocketServer({ server, path: '/ws' });
 const games = new Set();
 const controllers = new Set();
 const slotOf = new Map();   // phone key -> the slot it last had
+// phone id -> its sign-up: the email (null without the personal-data authorization) and both
+// authorizations, kept for sending the student's results on (to Google Sheets, still to be wired)
+const registrations = new Map();
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 let nextId = 1;
 
 function send(ws, msg) { if (ws.readyState === 1) ws.send(JSON.stringify(msg)); }
 function broadcast(set, msg) { for (const ws of set) send(ws, msg); }
+// what a phone's character looks like: 'm' or 'f', plus a skin and a hair colour (0-2, see colors.js)
+function readLook(o) {
+  const n = (v) => { const k = Number(v); return Number.isInteger(k) && k >= 0 && k <= 2 ? k : 0; };
+  return { c: o.c === 'f' ? 'f' : 'm', skin: n(o.skin), hair: n(o.hair) };
+}
 function freeSlot(wanted) {
   const used = new Set([...controllers].map((c) => c.slot));
   if (wanted && !used.has(wanted)) return wanted;
@@ -74,7 +83,7 @@ wss.on('connection', (ws, req) => {
   const role = params.get('role');
   if (role === 'game') {
     games.add(ws);
-    for (const c of controllers) send(ws, { t: 'join', id: c.id, slot: c.slot, c: c.char });
+    for (const c of controllers) send(ws, { t: 'join', id: c.id, slot: c.slot, look: c.look });
     // the game speaks back to one phone at a time: a question to answer, or its result
     ws.on('message', (raw) => {
       let msg;
@@ -92,17 +101,22 @@ wss.on('connection', (ws, req) => {
   // the same phone twice (a reconnect racing the old socket's close): the new one takes over quietly
   for (const c of controllers) if (c.id === ws.id) { c.replaced = true; controllers.delete(c); ws.slot = c.slot; c.close(); }
   ws.slot = ws.slot || freeSlot(key && slotOf.get(key));
-  ws.char = params.get('char') === 'f' ? 'f' : 'm';   // which character the phone picked: 'm' or 'f'
+  ws.look = readLook({ c: params.get('char'), skin: params.get('skin'), hair: params.get('hair') });
   if (key) slotOf.set(key, ws.slot);
   controllers.add(ws);
   send(ws, { t: 'hello', id: ws.id, slot: ws.slot, games: games.size });
-  broadcast(games, { t: 'join', id: ws.id, slot: ws.slot, c: ws.char });
+  broadcast(games, { t: 'join', id: ws.id, slot: ws.slot, look: ws.look });
 
   ws.on('message', (raw) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
-    if (msg.t === 'input') broadcast(games, { t: 'input', id: ws.id, slot: ws.slot, c: ws.char, s: msg.s });
-    else if (msg.t === 'char') { ws.char = msg.c === 'f' ? 'f' : 'm'; broadcast(games, { t: 'char', id: ws.id, c: ws.char }); }
+    if (msg.t === 'input') broadcast(games, { t: 'input', id: ws.id, slot: ws.slot, look: ws.look, s: msg.s });
+    else if (msg.t === 'register') {
+      const personal = msg.personal === true, sensitive = msg.sensitive === true;
+      const email = personal && typeof msg.email === 'string' && msg.email.length <= 254 && EMAIL_RE.test(msg.email) ? msg.email : null;
+      registrations.set(ws.id, { email, personal, sensitive, at: registrations.get(ws.id)?.at || new Date().toISOString() });
+    }
+    else if (msg.t === 'look') { ws.look = readLook(msg); broadcast(games, { t: 'look', id: ws.id, look: ws.look }); }
     else if (['answer', 'seen', 'floor', 'liftClose'].includes(msg.t)) broadcast(games, { ...msg, id: ws.id, slot: ws.slot });
   });
   ws.on('close', () => {
