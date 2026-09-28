@@ -7,6 +7,7 @@ const GRAVITY = 1400, MAX_FALL = 460;
 const RUN_SPEED = 120, GROUND_ACC = 1200, AIR_ACC = 800, GROUND_FRIC = 1500;
 const JUMP_V = 295, COYOTE = 0.1, JUMP_BUFFER = 0.12;   // one fixed ~31px hop: tables and steps (<=28px), never the floor above (>=34px)
 const WALL_SLIDE = 45, WALL_SLIDE_FAST = 130, WALL_CLIMB = 65;
+const MAX_STEP = 12;   // a Suelos stair riser this short or less is auto-climbed by walking into it, not jumped
 
 const WALL_JUMP_VX = 150, WALL_LOCK = 0.17;
 const DASH_TIME = 0.18, DASH_SPEED = 300, DASH_COOLDOWN = 0.45;
@@ -35,148 +36,59 @@ ctx.imageSmoothingEnabled = false;
 
 const loadImg = (src) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
 
-// kind map: 0 empty, 1 solid wall, 2 one-way platform
-// The collision is read straight off ML.png, from two things the art is consistent about:
-//   · a floor slab is [black outline][light top strip][black][grey underside], and the grey
-//     never gets covered, so it is what marks every floor out;
-//   · anything standing on a floor — a table, a bench, a bookcase, the atrium platforms, a
-//     stair step — is outlined in black with open room above it.
-// Tall grey is a wall instead: the left pillar, the lift shaft, the stubs hanging off ceilings.
-const AIR = [0xdebc8b, 0xeae0c5, 0x9e8572, 0xb4b4b4, 0x786257, 0x5b965b];  // wood, cream, brown, lobby grey, earth, grass
-const UNDERSIDE = [0x696969, 0x323232];   // slab shading: light grey for floors, dark for the lobby beam
-const SURFACE_SINK = 4;   // stand this deep into the top of a floor slab, so the feet overlap it
-const OBJECT_SINK = 2;    // furniture tops are thinner than a slab, so the feet sit higher on them
-const SLAB_TOP = 8;       // a slab's outline sits this far above its grey underside
-const SLAB_CAP = 10;      // how far up to look for that outline before calling it a bare wall
-const MIN_LEDGE = 6;      // shorter black runs are trim and window frames, not somewhere to stand
-const WALL_RUN = 14;      // grey taller than this is a wall, on top of whatever floor it hangs from
-const STEP_W = 14;        // a stair tread is never wider than this
-const STEP_RUN = 3;       // and a flight is at least this many of them, so a machine isn't stairs
-const STEP_BODY = 8;      // fill this far down each tread, so a flight is solid from the side
+// kind map: 0 empty, 1 solid Suelos (never auto-stepped), 2 one-way flat Plataforma,
+// 3 Plataforma stair — one-way (jump onto it, pass freely otherwise, even jumping
+// straight up through one) until P.onStair says you're actually resting on it, then
+// solid and auto-stepped like a staircase — 4 Suelos stair (always solid, always
+// auto-stepped). Each layer is authored art, not a heuristic: a pixel's opacity IS
+// its collision — read straight off the layer's alpha channel.
+const ALPHA_SOLID = 128;   // alpha (0-255) at or above this counts as solid
+const SURFACE_SINK = 4;    // stand this deep into a Suelos surface, so the feet overlap it, not float above it
+const OBJECT_SINK = 2;     // Plataforma art is thinner, so its surfaces sink less
 let kind;
-function buildCollision(img) {
+function alphaMask(img) {
   const off = document.createElement('canvas');
   off.width = W; off.height = H;
   const octx = off.getContext('2d');
   octx.drawImage(img, 0, 0);
   const d = octx.getImageData(0, 0, W, H).data;
-  const rgb = new Int32Array(W * H);
-  for (let p = 0, i = 0; p < rgb.length; p++, i += 4) rgb[p] = (d[i] << 16) | (d[i + 1] << 8) | d[i + 2];
+  const mask = new Uint8Array(W * H);
+  for (let p = 0, i = 3; p < mask.length; p++, i += 4) if (d[i] >= ALPHA_SOLID) mask[p] = 1;
+  return mask;
+}
+function buildCollision(suelos, plataforma, suelosEsc, plataformaEsc) {
+  const ground = alphaMask(suelos), groundStairs = alphaMask(suelosEsc);
+  const plat = alphaMask(plataforma), platStairs = alphaMask(plataformaEsc);
   kind = new Uint8Array(W * H);
-
-  // Every slab in the art is drawn the same way: [black outline][light top strip][black][grey
-  // underside]. The grey is what marks a floor out, because it runs unbroken beneath the
-  // furniture, where a table or a bookcase would otherwise hide the slab's own outline.
-  const isUnder = (c) => c === UNDERSIDE[0] || c === UNDERSIDE[1];
-  const runs = [];
+  for (let i = 0; i < kind.length; i++) {
+    // the escalera markers are the authority over their own layer's flat art: wherever one is
+    // opaque, that pixel is stair collision, even if Suelos/Plataforma also drew ordinary art
+    // underneath it. Below that, Plataforma wins over Suelos: an object only has to exist in the
+    // Plataforma group to behave like one — Suelos underneath/behind it (a shadow, a shared
+    // outline, art you don't want to hand-erase pixel-perfect) never turns it solid.
+    if (groundStairs[i]) kind[i] = 4;
+    else if (platStairs[i]) kind[i] = 3;
+    else if (plat[i]) kind[i] = 2;
+    else if (ground[i]) kind[i] = 1;
+  }
+  // the art's own top edge (outline, anti-aliasing) sits a little above where a surface should
+  // really catch the feet, so sink flat surfaces a few px — same feel as the old heuristic. A
+  // stair (3 or 4) is authored exactly as its hitbox: never sink into it, only the plain run above it
   for (let x = 0; x < W; x++) {
     let y = 0;
     while (y < H) {
-      if (!isUnder(rgb[y * W + x])) { y++; continue; }
-      const c = rgb[y * W + x];
-      let e = y;
-      while (e < H && rgb[e * W + x] === c) e++;
-      runs.push(x, y, e);
+      if (kind[y * W + x] === 0) { y++; continue; }
+      let e = y, firstStair = -1;
+      while (e < H && kind[e * W + x] !== 0) {
+        const k = kind[e * W + x];
+        if ((k === 3 || k === 4) && firstStair < 0) firstStair = e;
+        e++;
+      }
+      const want = (kind[y * W + x] === 1 || kind[y * W + x] === 4) ? SURFACE_SINK : OBJECT_SINK;
+      const limit = firstStair >= 0 ? firstStair - y : e - y - 1;
+      const sink = Math.min(want, limit);
+      for (let r = y; r < y + sink; r++) kind[r * W + x] = 0;
       y = e;
-    }
-  }
-  // walk up from each grey run to the slab's outline; grey with nothing above it is the roof
-  const floors = [];
-  const lowest = new Int32Array(W).fill(-1);
-  let roofY = H;
-  for (let i = 0; i < runs.length; i += 3) {
-    const x = runs[i], y0 = runs[i + 1];
-    // a slab has an outline above its strip; the roof and bare walls do not. Measure the
-    // surface from the grey itself, since furniture often covers the strip and its outline.
-    let capped = false;
-    if (y0 > 0 && rgb[(y0 - 1) * W + x] === 0)
-      for (let t = y0 - 3; t >= y0 - SLAB_CAP && t >= 0; t--) if (rgb[t * W + x] === 0) { capped = true; break; }
-    if (!capped) { if (y0 < roofY) roofY = y0; continue; }
-    const top = y0 - SLAB_TOP;
-    floors.push(x, top);
-    if (top > lowest[x]) lowest[x] = top;
-  }
-  // a tall grey run is a wall — the left pillar, the lift shaft, the stubs hanging off a ceiling —
-  // and it is marked on top of the floor it hangs from, not instead of it
-  for (let i = 0; i < runs.length; i += 3) {
-    const x = runs[i], y0 = runs[i + 1], y1 = runs[i + 2];
-    if (y1 - y0 >= WALL_RUN || y0 < roofY + SLAB_CAP) for (let y = y0; y < y1; y++) kind[y * W + x] = 1;
-  }
-  for (let i = 0; i < floors.length; i += 2) {
-    const x = floors[i], top = floors[i + 1], row = (top + SURFACE_SINK) * W + x;
-    // with nothing below it, a floor is fully solid, so nobody can drop out of the world
-    if (kind[row] !== 1) kind[row] = top === lowest[x] ? 1 : 2;
-  }
-
-  // Everything standing on those floors — the tables, the benches, the bookcases, the white
-  // blocks — is outlined in black with open room above it. That outline is its top.
-  const isAir = (c) => {
-    for (let i = 0; i < AIR.length; i++) if (c === AIR[i]) return true;
-    const r = c >> 16, g = (c >> 8) & 255, b = c & 255;   // the sky is a gradient, so take its whole range
-    return r >= 185 && r <= 210 && g >= 215 && g <= 230 && b >= 230 && b <= 240;
-  };
-  // open space is a flat wall colour, or the black void outside the room — but a single black
-  // line is an outline, not space, so black only counts where it runs thick
-  const air = (x, y) => y < 0 || isAir(rgb[y * W + x]) ||
-    (rgb[y * W + x] === 0 && y > 1 && rgb[(y - 1) * W + x] === 0 && rgb[(y - 2) * W + x] === 0);
-  const body = (x, y) => { const c = rgb[y * W + x]; return c !== 0 && !isAir(c); };
-  const isTop = (x, y) => rgb[y * W + x] === 0 && air(x, y - 1) && body(x, y + 1) && body(x, y + 2) && body(x, y + 3);
-  for (let y = 1; y < H - 4; y++) {
-    let x = 0;
-    while (x < W) {
-      if (!isTop(x, y)) { x++; continue; }
-      let e = x;
-      while (e < W && isTop(e, y)) e++;
-      if (e - x >= MIN_LEDGE) {
-        for (let k = x; k < e; k++) {
-          // a floor slab already got its surface from the grey pass — leave those alone, this
-          // pass is only for what stands on top of them
-          let taken = false;
-          for (let r = y + OBJECT_SINK; r <= y + SURFACE_SINK + 2 && !taken; r++) taken = kind[r * W + k] !== 0;
-          if (!taken) kind[(y + OBJECT_SINK) * W + k] = 2;
-        }
-      }
-      x = e;
-    }
-  }
-
-  // Stairs are a chain of narrow treads stepping diagonally — some of them read as tiny slabs,
-  // some as ledges, so gather them off the finished map. Fill each tread's front in, and a
-  // flight becomes solid: it has to be climbed, not walked through from the side. Anything that
-  // steps alone — a machine, a shelf — stays a platform you can pass in front of.
-  const treads = [];
-  for (let y = 0; y < H; y++) {
-    let x = 0;
-    while (x < W) {
-      if (kind[y * W + x] !== 2) { x++; continue; }
-      let e = x;
-      while (e < W && kind[y * W + e] === 2) e++;
-      if (e - x <= STEP_W) treads.push(y, x, e - 1);
-      x = e;
-    }
-  }
-  const steps = (a, b) => {
-    const dy = Math.abs(treads[a] - treads[b]), dx = Math.abs(treads[a + 1] - treads[b + 1]);
-    return dy >= 4 && dy <= 12 && dx >= 3 && dx <= STEP_W;
-  };
-  const seen = new Uint8Array(treads.length / 3);
-  for (let s = 0; s < treads.length; s += 3) {
-    if (seen[s / 3]) continue;
-    const flight = [s];
-    seen[s / 3] = 1;
-    for (let q = 0; q < flight.length; q++)
-      for (let t = 0; t < treads.length; t += 3)
-        if (!seen[t / 3] && steps(flight[q], t)) { seen[t / 3] = 1; flight.push(t); }
-    if (flight.length < STEP_RUN) continue;
-    for (const i of flight) {
-      const y = treads[i], x0 = treads[i + 1], x1 = treads[i + 2];
-      // a tread is floor, not furniture, so put every one of them at floor height: the two
-      // passes sink by different amounts, which would leave 2px lips along the flight
-      const outline = rgb[(y - OBJECT_SINK) * W + x0] === 0 ? y - OBJECT_SINK : y - SURFACE_SINK;
-      for (let k = x0; k <= x1; k++) {
-        if (kind[y * W + k] === 2) kind[y * W + k] = 0;
-        for (let r = outline + SURFACE_SINK; r < outline + SURFACE_SINK + STEP_BODY && r < H; r++) kind[r * W + k] = 1;
-      }
     }
   }
 }
@@ -247,43 +159,87 @@ function removePlayer(id) {
 function respawn() {
   Object.assign(P, {
     x: SPAWN.x + (P.slot % 5) * SPAWN.spread, y: SPAWN.y, vx: 0, vy: 0, face: -1,
-    ground: false, coyote: 0, jumpBuf: 0, wallDir: 0, grab: false, climbing: false,
+    ground: false, onStair: false, coyote: 0, jumpBuf: 0, wallDir: 0, grab: false, climbing: false,
     dashT: 0, dropT: 0, dashCd: 0, dashDir: 1, airDash: true, hitT: 0, lockT: 0,
     dead: false, deadT: 0, anim: 'Fall', animT: 0,
   });
 }
 
+const solid = (k) => k === 1 || k === 4;   // blocks like a wall (Suelos, whether auto-steppable or not)
+const oneWay = (k) => k === 2 || k === 3;   // Plataforma, flat or diagonal: solid only from above, drop-through-able
 function groundBelow() {
   const x0 = Math.floor(P.x), row = Math.floor(P.y + HB_H);
   for (let x = x0; x < x0 + HB_W; x++) {
     const k = K(x, row);
-    if (k === 1) return true;
-    if (k === 2 && P.dropT <= 0 && K(x, row - 1) !== 2) return true;
+    if (solid(k)) return true;
+    if (oneWay(k) && P.dropT <= 0 && !oneWay(K(x, row - 1))) return true;
   }
   return false;
 }
 function onThinFloor() {
   const x0 = Math.floor(P.x), row = Math.floor(P.y + HB_H);
   let thin = false;
-  for (let x = x0; x < x0 + HB_W; x++) { const k = K(x, row); if (k === 1) return false; if (k === 2) thin = true; }
+  for (let x = x0; x < x0 + HB_W; x++) { const k = K(x, row); if (solid(k)) return false; if (oneWay(k)) thin = true; }
   return thin;
+}
+// true only when actually resting on a Plataforma stair (kind 3), never on real Suelos ground —
+// checked once per frame while grounded, so it stays put through a jump (jumping up through a
+// stair from real ground below doesn't suddenly read as "mounted" mid-air) and only changes on
+// an actual landing.
+function standingOnStair() {
+  const x0 = Math.floor(P.x), row = Math.floor(P.y + HB_H);
+  let onGround = false, onThree = false;
+  for (let x = x0; x < x0 + HB_W; x++) {
+    const k = K(x, row);
+    if (k === 1 || k === 4) onGround = true; else if (k === 3) onThree = true;
+  }
+  return onThree && !onGround;
 }
 function wallSide(dir) {
   const x = dir > 0 ? Math.floor(P.x) + HB_W : Math.floor(P.x) - 1;
   const y0 = Math.floor(P.y);
-  for (let y = y0 + 1; y < y0 + HB_H - 1; y++) if (K(x, y) === 1) return true;
+  for (let y = y0 + 1; y < y0 + HB_H - 1; y++) { const k = K(x, y); if (k === 1 || k === 4) return true; }
   return false;
 }
 function moveX(dx) {
   const dir = Math.sign(dx);
   let rem = Math.abs(dx);
+  // a Plataforma stair (kind 3) is one-way — pass through freely, including jumping straight up
+  // through one from below — until P.onStair says you're actually resting on it (set once per
+  // frame in step(), only while grounded, so it never flips mid-air). Once mounted, it's solid
+  // and auto-stepped exactly like a Suelos stair, so climbing or descending the rest of the
+  // flight feels like a normal staircase.
+  const onStair = P.onStair;
   while (rem > 0) {
     const s = Math.min(1, rem); rem -= s;
     const nx = P.x + dir * s;
     const col = dir > 0 ? Math.floor(nx) + HB_W - 1 : Math.floor(nx);
-    let blocked = false;
     const y0 = Math.floor(P.y);
-    for (let y = y0; y < y0 + HB_H; y++) if (K(col, y) === 1) { blocked = true; break; }
+    let leadingSolid = false;
+    for (let y = y0; y < y0 + HB_H; y++) {
+      const k = K(col, y);
+      if (solid(k) || (k === 3 && onStair)) { leadingSolid = true; break; }
+    }
+    // the escalera marker (kind 4 always, kind 3 once mounted) is a thin diagonal line a few
+    // columns ahead of where the plain fill it steps through first blocks, so "is this a stair
+    // riser" is judged over a hitbox-width window ahead of the blocking edge, in the direction of
+    // travel — a real wall never has a stair-kind pixel anywhere near it.
+    const scanFrom = dir > 0 ? col : col - HB_W + 1, scanTo = dir > 0 ? col + HB_W - 1 : col;
+    let hasStair = false;
+    for (let x = scanFrom; x <= scanTo && !hasStair; x++)
+      for (let y = y0; y < y0 + HB_H; y++) { const k = K(x, y); if (k === 4 || (k === 3 && onStair)) { hasStair = true; break; } }
+    let blocked = leadingSolid;
+    const hard = !hasStair;
+    if (blocked && !hard) {
+      for (let lift = 1; lift <= MAX_STEP; lift++) {
+        let clear = true;
+        for (let y = y0 - lift; y < y0 - lift + HB_H; y++) {
+          const k = K(col, y);
+          if (solid(k) || (k === 3 && onStair)) { clear = false; break; }
+        }
+        if (clear) { P.y -= lift; blocked = false; break; }
+      }
+    }
     if (blocked) { P.vx = 0; return; }
     P.x = nx;
   }
@@ -302,7 +258,7 @@ function moveY(dy) {
         let land = false;
         for (let x = x0; x < x0 + HB_W; x++) {
           const k = K(x, row);
-          if (k === 1 || (k === 2 && P.dropT <= 0 && K(x, prev) !== 2)) { land = true; break; }
+          if (solid(k) || (oneWay(k) && P.dropT <= 0 && !oneWay(K(x, prev)))) { land = true; break; }
         }
         if (land) { P.y = row - HB_H; P.vy = 0; P.ground = true; return; }
       }
@@ -310,7 +266,7 @@ function moveY(dy) {
       const prev = Math.floor(P.y), row = Math.floor(ny);
       if (row < prev) {
         let hit = false;
-        for (let x = x0; x < x0 + HB_W; x++) if (K(x, row) === 1) { hit = true; break; }
+        for (let x = x0; x < x0 + HB_W; x++) if (solid(K(x, row))) { hit = true; break; }
         if (hit) { P.vy = 0; return; }
       }
     }
@@ -342,7 +298,10 @@ function step(dt) {
   if (jumpP) P.jumpBuf = JUMP_BUFFER;
 
   P.ground = groundBelow();
-  if (P.ground) { P.coyote = COYOTE; P.airDash = true; }
+  if (P.ground) {
+    P.coyote = COYOTE; P.airDash = true;
+    P.onStair = standingOnStair();
+  }
   // down while standing on a thin floor: drop through to the floor below
   if (P.ground && down && P.hitT <= 0 && P.dashT <= 0 && onThinFloor()) { P.dropT = DROP_TIME; P.ground = false; P.coyote = 0; P.y += 1; }
   P.wallDir = !P.ground ? (wallSide(1) ? 1 : wallSide(-1) ? -1 : 0) : 0;
@@ -513,23 +472,27 @@ function checkMarkers(p) {
   }
 }
 
-// The floor-1 lift door the art is missing is painted once onto a copy of the map. The signs — floor
+// The building is composited from its 4 layers, back to front. Floors whose art has no lift door
+// drawn (`doorFrom` set) get one painted on, copied from another floor's door. The signs — floor
 // numbers, lab titles, the key in the sky — go on their own canvas instead (drawSigns, below).
-function paintBuilding(map) {
+function paintBuilding(background, suelos, plataforma, decoracion) {
   const c = document.createElement('canvas'); c.width = W; c.height = H;
   const g = c.getContext('2d');
   g.imageSmoothingEnabled = false;
-  g.drawImage(map, 0, 0);
-  const d = LIFT.door, w = d.x1 - d.x0 + 1, h = d.bottom - d.top + 1, from = LIFT.doorFrom;
-  const ground = FLOORS[0].row;
-  if (ground !== from) {
+  g.drawImage(background, 0, 0);
+  g.drawImage(suelos, 0, 0);
+  g.drawImage(plataforma, 0, 0);
+  g.drawImage(decoracion, 0, 0);
+  const d = LIFT.door, w = d.x1 - d.x0 + 1, h = d.bottom - d.top + 1;
+  for (const f of FLOORS) {
+    if (!f.doorFrom) continue;
     // copy the door pixel by pixel, leaving out the wall behind it (the wood of the floor it comes
-    // from), so it sits on floor 1's own wall, in front of the desk there so the lift stays easy to spot
-    const src = g.getImageData(d.x0, from + d.top, w, h), dst = g.getImageData(d.x0, ground + d.top, w, h);
+    // from), so it sits on this floor's own wall, in front of the desk there so the lift stays easy to spot
+    const src = g.getImageData(d.x0, f.doorFrom + d.top, w, h), dst = g.getImageData(d.x0, f.row + d.top, w, h);
     const wall = [src.data[0], src.data[1], src.data[2]];
     const isWall = (i) => Math.abs(src.data[i] - wall[0]) + Math.abs(src.data[i + 1] - wall[1]) + Math.abs(src.data[i + 2] - wall[2]) < 40;
     for (let i = 0; i < src.data.length; i += 4) if (!isWall(i)) for (let k = 0; k < 4; k++) dst.data[i + k] = src.data[i + k];
-    g.putImageData(dst, d.x0, ground + d.top);
+    g.putImageData(dst, d.x0, f.row + d.top);
   }
   return c;
 }
@@ -554,7 +517,7 @@ addEventListener('resize', () => { clearTimeout(signsTimer); signsTimer = setTim
 const MAP_KEY = [
   { icon: (g, x, y) => drawBang(g, x, y + 7), title: 'Evento', text: ['Párate debajo y oprime', 'el botón de tu celular'] },
   { icon: (g, x, y) => drawActButton(g, x, y), title: 'Botón de la mano', text: ['Sale sobre ti cuando', 'puedes interactuar'] },
-  { icon: (g, x, y) => drawFloorTag(g, x, y - 6, 3), title: 'Ascensor y piso', text: ['En la puerta oprime el', `botón y elige 1 a ${TOP_FLOOR}`] },
+  { icon: (g, x, y) => drawFloorTag(g, x, y - 6, 3), title: 'Ascensor y piso', text: ['En la puerta oprime el', `botón y elige S1 a ${TOP_FLOOR}`] },
   { icon: (g, x, y) => drawLabSign(g, x, y - 6, { name: 'Lab', color: LABS.elec.color }), title: 'Laboratorio', text: ['Su nombre va en el', 'letrero de color'] },
   { icon: (g, x, y) => drawStar(g, x, y + 6), title: `Árbol (piso ${TOP_FLOOR})`, text: [`Con ${EVENTS_PER_PLAYER} eventos listos,`, 've por tus resultados'] },
 ];
@@ -594,8 +557,9 @@ function localQuiz(m) {
     return;
   }
   if (m.t === 'lift') {
+    const nums = m.floors.filter((n) => n !== 'S1');
     quizBox.innerHTML = `<h2>Ascensor · estás en el piso ${m.current}</h2>` +
-      `<p>Elige piso con las teclas ${m.floors[0]}–${m.floors[m.floors.length - 1]} · <kbd>Esc</kbd> para salir</p>`;
+      `<p>Elige piso: <kbd>0</kbd>=S1, teclas ${nums[0]}–${nums[nums.length - 1]} · <kbd>Esc</kbd> para salir</p>`;
     return;
   }
   if (m.t === 'result') {
@@ -611,6 +575,7 @@ addEventListener('keydown', (e) => {
   if (!kbPlayer) return;
   const n = parseInt(e.key, 10);
   if (kbPlayer.asking && n >= 1 && n <= 5) { answerEvent(kbPlayer, n - 1); e.preventDefault(); }
+  else if (kbPlayer.lift && e.key === '0') { rideLift(kbPlayer, 'S1'); e.preventDefault(); }
   else if (kbPlayer.lift && n >= 1) { rideLift(kbPlayer, n); e.preventDefault(); }
   else if (kbPlayer.lift && e.key === 'Escape') closeLift(kbPlayer);
 });
@@ -723,15 +688,23 @@ function connect() {
   };
 }
 
+const LAYERS = ['Background', 'Suelos', 'Plataforma', 'Decoracion', 'Suelos-Escaleras', 'Plataforma-Escaleras'];
 (async function init() {
-  const [map, ...imgs] = await Promise.all([loadImg('ML.png'), ...Object.keys(SPRITES).map((n) => loadImg(`sprites/${n}.png`))]);
+  const [layers, ...imgs] = await Promise.all([
+    Promise.all(LAYERS.map((n) => loadImg(`layers/${n}.png`))),
+    ...Object.keys(SPRITES).map((n) => loadImg(`sprites/${n}.png`)),
+  ]);
+  const [background, suelos, plataforma, decoracion, suelosEsc, plataformaEsc] = layers;
   Object.keys(SPRITES).forEach((n, i) => { sheets[n] = imgs[i]; });
-  buildCollision(map);   // from the bare art: the signs and numbers painted next must never become floors
-  bg = paintBuilding(map);
+  buildCollision(suelos, plataforma, suelosEsc, plataformaEsc);   // the signs painted next must never become floors
+  bg = paintBuilding(background, suelos, plataforma, decoracion);
   drawSigns();
-  // the tree's planter has no floor drawn under it: make it a solid block you can bump into or stand on
-  const pl = GOAL.planter;
-  for (let y = pl.top + SURFACE_SINK; y <= pl.bottom; y++) for (let x = pl.x0; x <= pl.x1; x++) kind[y * W + x] = 1;
+  // disabled on purpose: this was the unexplained solid box Sergio kept finding in the art — it
+  // isn't needed (the goal trigger is its own zone check, not tied to standing on the planter),
+  // so it stays off. Suelos still covers the ledge under it (3 rows); only the pot itself is
+  // walk-through now. Uncomment if the tree area ever needs to block movement again.
+  // const pl = GOAL.planter;
+  // for (let y = pl.top + SURFACE_SINK; y <= pl.bottom; y++) for (let x = pl.x0; x <= pl.x1; x++) kind[y * W + x] = 1;
   connect();
   fetch('/api/info').then((r) => r.json()).then((i) => {
     // on a LAN run, point phones at this PC's address; once deployed, the page's own origin is the one to share
