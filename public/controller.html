@@ -96,6 +96,7 @@
   #quiz .nav { display:flex; justify-content:center; gap:.75em; }
   #quiz .nav .close { margin:.75em 0 0; }
   #quiz .nav .close.go { background:var(--mark); color:#000; box-shadow:inset 0 -4px 0 #d99a00, 3px 3px 0 rgba(0,0,0,.3); }
+  #quiz .nav .close:disabled { opacity:.45; }
   /* the lift's floor panel: black buttons with yellow numbers, like the display over every lift door */
   #quiz .lift { display:grid; grid-template-columns:repeat(3, 4.6em); gap:.85em; justify-content:center; justify-items:center; margin:.3em auto 0; padding:1em 1.2em;
                 background:var(--cream); border:3px solid #000; box-shadow:inset 0 -4px 0 var(--brown), 4px 4px 0 rgba(0,0,0,.3); }
@@ -132,6 +133,12 @@
   .me .sprite { width:var(--sp); height:var(--sp); background:url(sprites/Idle.png) 0 0 / 400% 100% no-repeat; image-rendering:pixelated; animation:idle .67s steps(4) infinite; }
   @keyframes idle { to { background-position:133.33% 0; } }
   .me b { font-size:14px; text-shadow:2px 2px 0 #000; }
+  /* character choice: one card per character, the picked one lit up */
+  #quiz .chars { display:flex; gap:1.5em; justify-content:center; }
+  #quiz .chars button { display:flex; flex-direction:column; align-items:center; gap:.5em; padding:.8em 1.4em 1em; background:var(--cream);
+                        box-shadow:inset 0 -5px 0 var(--brown), 3px 3px 0 rgba(0,0,0,.3); font-weight:800; font-size:1.1em; }
+  #quiz .chars button.pick { background:var(--mark); box-shadow:inset 0 -5px 0 #d99a00, 3px 3px 0 rgba(0,0,0,.3); }
+  #quiz .chars .pic { width:6em; height:6em; background:0 0 / 400% 100% no-repeat; image-rendering:pixelated; animation:idle2 .67s steps(4) infinite; }
   .rotate { display:none; position:fixed; inset:0; background:var(--planks); font-weight:700; z-index:9; align-items:center; justify-content:center; text-align:center; padding:24px; font-size:18px; }
   @media (orientation:portrait) { .rotate { display:flex; } }
 </style>
@@ -157,6 +164,7 @@
 <div class="rotate">Gira el telefono a horizontal ↻</div>
 <script src="events.js"></script>
 <script src="symbols.js"></script>
+<script src="colors.js"></script>
 <script>
 'use strict';
 const state = {};
@@ -177,15 +185,19 @@ const store = {   // per-phone flags; if storage is blocked they just last as lo
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch {} },
 };
-
-// the same tint and tag colour the game gives this slot (HUES / LABEL_COLORS in game.js); CSS
-// hue-rotate is the very colour matrix the game applies to the sprite sheets
-const HUES = [0, 200, 100, 290];
-const LABEL_COLORS = ['#e16714', '#4aa3ff', '#5fd068', '#c76bff'];
-const hueFilter = () => { const h = HUES[(slot - 1) % HUES.length]; return h ? `hue-rotate(${h}deg)` : ''; };
-const tagColor = () => LABEL_COLORS[(slot - 1) % LABEL_COLORS.length];
+// the character this phone plays: 'm' or 'f' (null until the student picks one)
+let char = store.get('mlquest-char');
+// this slot's colour, the same one the game gives it (colors.js); '?' before the server has said
+const tagColor = () => (typeof slot === 'number' ? colorFor(slot) : '');
+// paint a character's Idle sheet, shirt in this player's colour, as an element's background
+function paintSprite(el, c) {
+  const img = new Image();
+  img.onload = () => { el.style.backgroundImage = `url(${recolorSheet(img, tagColor()).toDataURL()})`; };
+  img.src = `sprites/${c === 'f' ? 'f/' : ''}Idle.png`;
+}
 function showCharacter() {
-  document.getElementById('meSprite').style.filter = hueFilter();
+  const sp = document.getElementById('meSprite');
+  paintSprite(sp, char);
   const tag = document.getElementById('meTag');
   tag.textContent = 'P' + slot;
   tag.style.color = tagColor();
@@ -203,7 +215,7 @@ function send(msg = { t: 'input', s: { ...state } }) {
   if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg));
 }
 function connect() {
-  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?role=controller&key=${KEY}`);
+  ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?role=controller&key=${KEY}&char=${char || 'm'}`);
   ws.onopen = () => { txt.textContent = 'conectado'; send(); };
   ws.onmessage = (ev) => {
     const m = JSON.parse(ev.data);
@@ -211,7 +223,7 @@ function connect() {
       slot = m.slot; document.title = `ML Quest · J${slot}`; progress = null; showCharacter();
       if (panel !== 'intro') closeQuiz();   // a fresh connection: whatever the game had open is gone
       // first time on this phone: the onboarding, once (a reconnect must not send it back to page 1)
-      if (!store.get('mlquest-intro') && panel !== 'intro') showIntro(0);
+      if ((!store.get('mlquest-intro') || !char) && panel !== 'intro') showIntro(0);
     }
     if (m.t === 'ask') showQuestion(m);
     else if (m.t === 'saved') showSaved(m);
@@ -402,7 +414,7 @@ function legendItem(sym, title, text) {
 function mapSymbols() {
   const firstLab = LABS[EVENTS[0].lab], door = LIFT.door, liftRow = FLOORS.find((f) => f.n === 1).row, dw = door.x1 - door.x0 + 1, dh = door.bottom - door.top + 1;
   const me = document.createElement('div');
-  const mini = document.createElement('div'); mini.className = 'mini'; mini.style.filter = hueFilter();
+  const mini = document.createElement('div'); mini.className = 'mini'; paintSprite(mini, char);
   const tag = document.createElement('div'); tag.className = 'tag'; tag.textContent = 'P' + slot; tag.style.color = tagColor();
   me.append(tag, mini);
   const treeX = GOAL.x - 14, treeY = GOAL.row - 48;
@@ -433,7 +445,25 @@ function controlKeys() {
   lr.firstChild.classList.add('lrk');
   return [lr, key('SALTO', '#3a5fcd', 'Saltar escalones y muebles'), key('DASH', '#2f8f5b', 'Impulso rápido'), act];
 }
+function pickChar(c) {
+  char = c; store.set('mlquest-char', c);
+  send({ t: 'char', c });
+  showCharacter();
+  showIntro(0);
+}
+function charCards() {
+  const g = document.createElement('div'); g.className = 'chars';
+  for (const [c, label] of [['m', 'Masculino'], ['f', 'Femenino']]) {
+    const b = document.createElement('button'); if (c === char) b.classList.add('pick');
+    const pic = document.createElement('div'); pic.className = 'pic'; paintSprite(pic, c);
+    b.append(pic, label);
+    b.addEventListener('click', () => pickChar(c));
+    g.appendChild(b);
+  }
+  return g;
+}
 const INTRO = [
+  { title: 'Elige tu personaje', body: charCards },
   { title: 'Símbolos del mapa', body: () => { const g = document.createElement('div'); g.className = 'legend'; g.append(...mapSymbols()); return g; } },
   { title: 'Controles', body: () => { const g = document.createElement('div'); g.className = 'keys'; g.append(...controlKeys()); return g; } },
   { title: 'Tu misión', body: () => {
@@ -452,7 +482,11 @@ function showIntro(i) {
   setHeader(INTRO[i].title, 'Cómo jugar', `${i + 1}/${INTRO.length}`);
   const nav = document.createElement('div'); nav.className = 'nav';
   if (i > 0) nav.appendChild(panelButton('◀ Anterior', () => showIntro(i - 1)));
-  if (i < INTRO.length - 1) nav.appendChild(panelButton('Siguiente ▶', () => showIntro(i + 1), true));
+  if (i < INTRO.length - 1) {
+    const next = panelButton('Siguiente ▶', () => showIntro(i + 1), true);
+    next.disabled = i === 0 && !char;   // a character has to be picked before going on
+    nav.appendChild(next);
+  }
   else nav.appendChild(panelButton('¡A jugar!', () => { store.set('mlquest-intro', '1'); closeQuiz(); }, true));
   qBody.append(INTRO[i].body(), nav);
   openQuiz('intro');

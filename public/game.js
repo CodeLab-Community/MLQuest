@@ -6,12 +6,12 @@ const HB_W = 10, HB_H = 15;            // hitbox in world px; sprite frames are 
 const GRAVITY = 1400, MAX_FALL = 460;
 const RUN_SPEED = 120, GROUND_ACC = 1200, AIR_ACC = 800, GROUND_FRIC = 1500;
 const JUMP_V = 295, COYOTE = 0.1, JUMP_BUFFER = 0.12;   // one fixed ~31px hop: tables and steps (<=28px), never the floor above (>=34px)
-const WALL_SLIDE = 45, WALL_SLIDE_FAST = 130, WALL_CLIMB = 65;
+const WALL_SLIDE = 45, WALL_SLIDE_FAST = 130;
 const MAX_STEP = 12;   // a Suelos stair riser this short or less is auto-climbed by walking into it, not jumped
 
 const WALL_JUMP_VX = 150, WALL_LOCK = 0.17;
 const DASH_TIME = 0.18, DASH_SPEED = 300, DASH_COOLDOWN = 0.45;
-const DROP_TIME = 0.18, HIT_TIME = 0.5, DEATH_TIME = 1.4;
+const DROP_TIME = 0.18, DEATH_TIME = 1.4;
 // players start (and come back after dying) outside, on the pavement at the building's entrance:
 // the lobby stairs come down to it on the right. Each slot stands a little further along it.
 const SPAWN = { x: 945, y: 500, spread: 14 };
@@ -24,8 +24,6 @@ const SPRITES = {            // file, frames, fps, loop
   Fall:      { n: 1, fps: 1,  loop: true },
   Dash:      { n: 1, fps: 1,  loop: true },
   Wallslide: { n: 4, fps: 10, loop: true },
-  Climb:     { n: 2, fps: 8,  loop: true },
-  Hit:       { n: 7, fps: 14, loop: false },
   Death:     { n: 1, fps: 1,  loop: false },
 };
 
@@ -114,6 +112,7 @@ const KEYMAP = {
 addEventListener('keydown', (e) => {
   if (e.code === 'KeyF') { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.(); }
   if (e.code === 'KeyI') document.getElementById('bar').classList.toggle('hide');
+  if (e.code === 'KeyC') { const p = keyboardPlayer(); p.char = p.char === 'f' ? 'm' : 'f'; }   // switch the keyboard player's character
 });
 addEventListener('dblclick', () => { document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.(); });
 function keyboardPlayer() {
@@ -135,13 +134,13 @@ let P;   // the player currently being updated / drawn
 // A phone that drops its connection (screen lock, weak signal, a reload) comes back with the same id,
 // so its player is parked here instead of thrown away: answers, score and place all survive.
 const away = new Map();
-function addPlayer(id, slot) {
+function addPlayer(id, slot, char = 'm') {
   let p = away.get(id);
   if (p) {
     away.delete(id);
-    Object.assign(p, { slot, input: {}, latch: {}, asking: null, lift: false, near: null });
+    Object.assign(p, { slot, char, input: {}, latch: {}, asking: null, lift: false, near: null });
   } else {
-    p = { id, slot, input: {}, latch: {}, score: {}, done: new Set(), asking: null, lift: false, near: null };
+    p = { id, slot, char, input: {}, latch: {}, score: {}, done: new Set(), asking: null, lift: false, near: null };
     const prev = P; P = p; respawn(); P = prev;
   }
   players.set(id, p);
@@ -159,8 +158,8 @@ function removePlayer(id) {
 function respawn() {
   Object.assign(P, {
     x: SPAWN.x + (P.slot % 5) * SPAWN.spread, y: SPAWN.y, vx: 0, vy: 0, face: -1,
-    ground: false, onStair: false, coyote: 0, jumpBuf: 0, wallDir: 0, grab: false, climbing: false,
-    dashT: 0, dropT: 0, dashCd: 0, dashDir: 1, airDash: true, hitT: 0, lockT: 0,
+    ground: false, onStair: false, coyote: 0, jumpBuf: 0, wallDir: 0, grab: false,
+    dashT: 0, dropT: 0, dashCd: 0, dashDir: 1, airDash: true, lockT: 0,
     dead: false, deadT: 0, anim: 'Fall', animT: 0,
   });
 }
@@ -277,13 +276,13 @@ function moveY(dy) {
 function step(dt) {
   // answering (or picking a floor) takes as long as it takes: the character just stands still meanwhile
   if (P.asking || P.lift) { P.latch.jump = P.latch.dash = P.latch.act = P.latch.die = false; P.input = {}; }
-  const left = held('left'), right = held('right'), up = held('up'), down = held('down');
+  const left = held('left'), right = held('right'), down = held('down');
   const dirX = (right ? 1 : 0) - (left ? 1 : 0);
   const L = P.latch, jumpP = L.jump, dashP = L.dash, dieP = L.die;
   L.jump = L.dash = L.die = false;      // act is read by checkMarkers()
 
   P.animT += dt;
-  if (dieP && !P.dead) { P.dead = true; P.deadT = 0; P.vx = 0; P.vy = -200; P.dashT = 0; P.hitT = 0; setAnim('Death'); }
+  if (dieP && !P.dead) { P.dead = true; P.deadT = 0; P.vx = 0; P.vy = -200; P.dashT = 0; setAnim('Death'); }
 
   if (P.dead) {
     P.deadT += dt;
@@ -294,7 +293,7 @@ function step(dt) {
     return;
   }
 
-  P.dropT -= dt; P.dashCd -= dt; P.lockT -= dt; P.hitT -= dt; P.dashT -= dt; P.jumpBuf -= dt; P.coyote -= dt;
+  P.dropT -= dt; P.dashCd -= dt; P.lockT -= dt; P.dashT -= dt; P.jumpBuf -= dt; P.coyote -= dt;
   if (jumpP) P.jumpBuf = JUMP_BUFFER;
 
   P.ground = groundBelow();
@@ -303,17 +302,17 @@ function step(dt) {
     P.onStair = standingOnStair();
   }
   // down while standing on a thin floor: drop through to the floor below
-  if (P.ground && down && P.hitT <= 0 && P.dashT <= 0 && onThinFloor()) { P.dropT = DROP_TIME; P.ground = false; P.coyote = 0; P.y += 1; }
+  if (P.ground && down && P.dashT <= 0 && onThinFloor()) { P.dropT = DROP_TIME; P.ground = false; P.coyote = 0; P.y += 1; }
   P.wallDir = !P.ground ? (wallSide(1) ? 1 : wallSide(-1) ? -1 : 0) : 0;
 
   const dashing = P.dashT > 0;
-  if (dashP && P.dashCd <= 0 && !dashing && P.hitT <= 0 && (P.ground || P.airDash)) {
+  if (dashP && P.dashCd <= 0 && !dashing && (P.ground || P.airDash)) {
     P.dashT = DASH_TIME; P.dashCd = DASH_COOLDOWN; P.dashDir = dirX || P.face; P.face = P.dashDir;
     if (!P.ground) P.airDash = false;
     P.vy = 0;
   }
 
-  const controlled = P.lockT <= 0 && P.hitT <= 0 && P.dashT <= 0;
+  const controlled = P.lockT <= 0 && P.dashT <= 0;
 
   if (P.dashT > 0) {
     P.vx = P.dashDir * DASH_SPEED; P.vy = 0;
@@ -324,12 +323,12 @@ function step(dt) {
       const acc = dirX === 0 ? (P.ground ? GROUND_FRIC : AIR_ACC * 0.6) : (P.ground ? GROUND_ACC : AIR_ACC);
       if (P.vx < target) P.vx = Math.min(P.vx + acc * dt, target);
       else if (P.vx > target) P.vx = Math.max(P.vx - acc * dt, target);
-    } else if (P.hitT <= 0 && P.ground) {
+    } else if (P.ground) {
       P.vx *= 0.85;
     }
 
     // jump / wall jump
-    if (P.jumpBuf > 0 && P.hitT <= 0) {
+    if (P.jumpBuf > 0) {
       if (P.ground || P.coyote > 0) {
         P.vy = -JUMP_V; P.ground = false; P.coyote = 0; P.jumpBuf = 0;
       } else if (P.wallDir) {
@@ -338,20 +337,18 @@ function step(dt) {
       }
     }
 
-    // wall grab: slide, climb up, or drop fast
-    P.grab = P.wallDir !== 0 && P.hitT <= 0 && P.lockT <= 0 && (dirX === P.wallDir || up || down);
+    // wall grab: slide, or drop fast
+    P.grab = P.wallDir !== 0 && P.lockT <= 0 && (dirX === P.wallDir || down);
     if (P.grab) {
       P.face = P.wallDir;
-      if (up && (P.vy >= -20 || P.climbing)) { P.vy = -WALL_CLIMB; P.climbing = true; }
-      else if (down) { P.vy = WALL_SLIDE_FAST; P.climbing = false; }
-      else if (P.vy > 0) { P.vy = Math.min(P.vy, WALL_SLIDE); P.climbing = false; }
-      else P.climbing = false;
-    } else P.climbing = false;
+      if (down) P.vy = WALL_SLIDE_FAST;
+      else if (P.vy > 0) P.vy = Math.min(P.vy, WALL_SLIDE);
+    }
 
     // gravity — one weight, so every jump is the same height however long the button is held
-    if (!P.ground && !(P.grab && P.climbing)) {
+    if (!P.ground) {
       P.vy = Math.min(P.vy + GRAVITY * dt, MAX_FALL);
-      if (P.grab && !down && !P.climbing && P.vy > WALL_SLIDE) P.vy = WALL_SLIDE;
+      if (P.grab && !down && P.vy > WALL_SLIDE) P.vy = WALL_SLIDE;
     }
     if (P.ground && P.vy > 0) P.vy = 0;
     if (P.dropT > 0 && P.vy < 60) P.vy = 60;
@@ -365,10 +362,9 @@ function step(dt) {
 
   // pick animation
   const moving = Math.abs(P.vx) > 20;
-  if (P.hitT > 0) setAnim('Hit');
-  else if (P.dashT > 0) setAnim('Dash');
+  if (P.dashT > 0) setAnim('Dash');
   else if (P.ground) setAnim(moving && dirX !== 0 ? 'Run' : 'Idle');
-  else if (P.grab && P.wallDir) setAnim(P.climbing ? 'Climb' : 'Wallslide');
+  else if (P.grab && P.wallDir) setAnim('Wallslide');
   else setAnim(P.vy < 0 ? 'Jump' : 'Fall');
 }
 function setAnim(a) { if (P.anim !== a) { P.anim = a; P.animT = 0; } }
@@ -581,53 +577,30 @@ addEventListener('keydown', (e) => {
 });
 
 // ---------- render ----------
-let bg; const sheets = {};
-const tinted = new Map();      // slot -> { anim: canvas }, hue-rotated copies of the sprite sheets
-const HUES = [0, 200, 100, 290];            // controller.html repeats these two lists for its character preview
-const hueFor = (slot) => (slot === 0 ? 60 : HUES[(slot - 1) % HUES.length]);
-const LABEL_COLORS = ['#e16714', '#4aa3ff', '#5fd068', '#c76bff'];
-const tagColor = (p) => (p.slot === 0 ? '#c9b400' : LABEL_COLORS[(p.slot - 1) % LABEL_COLORS.length]);
+let bg; const sheets = { m: {}, f: {} };   // character ('m' or 'f') -> { anim: image }
+const tinted = new Map();      // slot + character -> { anim: canvas }, the sheets with the shirt in the slot's colour (colors.js)
+const tagColor = (p) => colorFor(p.slot);
 
-function tintedSheets(slot) {
-  const hue = hueFor(slot);
-  if (!hue) return sheets;
-  if (tinted.has(slot)) return tinted.get(slot);
-  const a = hue * Math.PI / 180, cos = Math.cos(a), sin = Math.sin(a);
-  const m = [
-    0.213 + cos * 0.787 - sin * 0.213, 0.715 - cos * 0.715 - sin * 0.715, 0.072 - cos * 0.072 + sin * 0.928,
-    0.213 - cos * 0.213 + sin * 0.143, 0.715 + cos * 0.285 + sin * 0.140, 0.072 - cos * 0.072 - sin * 0.283,
-    0.213 - cos * 0.213 - sin * 0.787, 0.715 - cos * 0.715 + sin * 0.715, 0.072 + cos * 0.928 + sin * 0.072,
-  ];
+function tintedSheets(slot, char) {
+  const key = slot + char;
+  if (tinted.has(key)) return tinted.get(key);
   const out = {};
-  for (const [name, img] of Object.entries(sheets)) {
-    const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
-    const cx = c.getContext('2d'); cx.drawImage(img, 0, 0);
-    const id = cx.getImageData(0, 0, c.width, c.height), d = id.data;
-    for (let i = 0; i < d.length; i += 4) {
-      const r = d[i], g = d[i + 1], b = d[i + 2];
-      d[i] = Math.max(0, Math.min(255, m[0] * r + m[1] * g + m[2] * b));
-      d[i + 1] = Math.max(0, Math.min(255, m[3] * r + m[4] * g + m[5] * b));
-      d[i + 2] = Math.max(0, Math.min(255, m[6] * r + m[7] * g + m[8] * b));
-    }
-    cx.putImageData(id, 0, 0);
-    out[name] = c;
-  }
-  tinted.set(slot, out);
+  for (const [name, img] of Object.entries(sheets[char])) out[name] = recolorSheet(img, colorFor(slot));
+  tinted.set(key, out);
   return out;
 }
 
 function drawPlayer() {
-  const def = SPRITES[P.anim], img = tintedSheets(P.slot)[P.anim];
+  const def = SPRITES[P.anim], img = tintedSheets(P.slot, P.char)[P.anim];
   let f = Math.floor(P.animT * def.fps);
   f = def.loop ? f % def.n : Math.min(f, def.n - 1);
-  if (P.anim === 'Hit') f = Math.min(def.n - 1, Math.floor((P.animT / HIT_TIME) * def.n));
   if (P.dead && P.deadT > DEATH_TIME - 0.4 && Math.floor(P.deadT * 20) % 2) return; // blink before respawn
   // the depth overlap lives in the collision mask (SURFACE_SINK), so the feet are drawn where they really are
   const cx = Math.round(P.x + HB_W / 2), by = Math.round(P.y + HB_H);
   ctx.save();
   ctx.translate(cx, by);
   if (P.face < 0) ctx.scale(-1, 1);
-  const ox = P.anim === 'Wallslide' || P.anim === 'Climb' ? -3 : 0;   // keep the hand on the wall, not inside it
+  const ox = P.anim === 'Wallslide' ? -3 : 0;   // keep the hand on the wall, not inside it
   ctx.drawImage(img, f * 16, 0, 16, 16, -8 + ox, -16, 16, 16);
   ctx.restore();
   // tiny tag over the head so players can tell each other apart
@@ -667,16 +640,17 @@ function connect() {
     const m = JSON.parse(ev.data);
     if (m.t === 'join') {
       const p = players.get(m.id);
-      if (!p) addPlayer(m.id, m.slot);
+      if (!p) addPlayer(m.id, m.slot, m.c);
       else {
         // the same phone again on a fresh connection: whatever panel it had open is gone, so let the
         // player open it again, and remind the phone how far along it is
-        Object.assign(p, { slot: m.slot, asking: null, lift: false, near: null });
+        Object.assign(p, { slot: m.slot, char: m.c, asking: null, lift: false, near: null });
         sendProgress(p);
       }
     }
     else if (m.t === 'leave') removePlayer(m.id);
-    else if (m.t === 'input') { if (!players.has(m.id)) addPlayer(m.id, m.slot); onRemote(players.get(m.id), m.s || {}); }
+    else if (m.t === 'char') { const p = players.get(m.id); if (p) p.char = m.c; }
+    else if (m.t === 'input') { if (!players.has(m.id)) addPlayer(m.id, m.slot, m.c); onRemote(players.get(m.id), m.s || {}); }
     else if (m.t === 'answer') { const p = players.get(m.id); if (p) answerEvent(p, m.choice); }
     else if (m.t === 'seen') { const p = players.get(m.id); if (p && p.asking) closeAsk(p); }
     else if (m.t === 'floor') { const p = players.get(m.id); if (p) rideLift(p, m.n); }
@@ -693,9 +667,10 @@ const LAYERS = ['Background', 'Suelos', 'Plataforma', 'Decoracion', 'Suelos-Esca
   const [layers, ...imgs] = await Promise.all([
     Promise.all(LAYERS.map((n) => loadImg(`layers/${n}.png`))),
     ...Object.keys(SPRITES).map((n) => loadImg(`sprites/${n}.png`)),
+    ...Object.keys(SPRITES).map((n) => loadImg(`sprites/f/${n}.png`)),
   ]);
   const [background, suelos, plataforma, decoracion, suelosEsc, plataformaEsc] = layers;
-  Object.keys(SPRITES).forEach((n, i) => { sheets[n] = imgs[i]; });
+  Object.keys(SPRITES).forEach((n, i) => { sheets.m[n] = imgs[i]; sheets.f[n] = imgs[i + Object.keys(SPRITES).length]; });
   buildCollision(suelos, plataforma, suelosEsc, plataformaEsc);   // the signs painted next must never become floors
   bg = paintBuilding(background, suelos, plataforma, decoracion);
   drawSigns();

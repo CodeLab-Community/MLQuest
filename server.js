@@ -74,7 +74,7 @@ wss.on('connection', (ws, req) => {
   const role = params.get('role');
   if (role === 'game') {
     games.add(ws);
-    for (const c of controllers) send(ws, { t: 'join', id: c.id, slot: c.slot });
+    for (const c of controllers) send(ws, { t: 'join', id: c.id, slot: c.slot, c: c.char });
     // the game speaks back to one phone at a time: a question to answer, or its result
     ws.on('message', (raw) => {
       let msg;
@@ -92,15 +92,17 @@ wss.on('connection', (ws, req) => {
   // the same phone twice (a reconnect racing the old socket's close): the new one takes over quietly
   for (const c of controllers) if (c.id === ws.id) { c.replaced = true; controllers.delete(c); ws.slot = c.slot; c.close(); }
   ws.slot = ws.slot || freeSlot(key && slotOf.get(key));
+  ws.char = params.get('char') === 'f' ? 'f' : 'm';   // which character the phone picked: 'm' or 'f'
   if (key) slotOf.set(key, ws.slot);
   controllers.add(ws);
   send(ws, { t: 'hello', id: ws.id, slot: ws.slot, games: games.size });
-  broadcast(games, { t: 'join', id: ws.id, slot: ws.slot });
+  broadcast(games, { t: 'join', id: ws.id, slot: ws.slot, c: ws.char });
 
   ws.on('message', (raw) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
-    if (msg.t === 'input') broadcast(games, { t: 'input', id: ws.id, slot: ws.slot, s: msg.s });
+    if (msg.t === 'input') broadcast(games, { t: 'input', id: ws.id, slot: ws.slot, c: ws.char, s: msg.s });
+    else if (msg.t === 'char') { ws.char = msg.c === 'f' ? 'f' : 'm'; broadcast(games, { t: 'char', id: ws.id, c: ws.char }); }
     else if (['answer', 'seen', 'floor', 'liftClose'].includes(msg.t)) broadcast(games, { ...msg, id: ws.id, slot: ws.slot });
   });
   ws.on('close', () => {
