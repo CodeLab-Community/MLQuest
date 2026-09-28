@@ -18,11 +18,12 @@ const CAREERS = {
 
 const EVENTS_PER_PLAYER = 4;   // each player answers this many rooms, then collects the result at the tree
 
-// The floors, numbered as the lift and every screen show them. The map has one more level, the
-// big hall at row 423, but the lift has no door there, so it is a mezzanine and gets no number.
+// The floors, numbered as the lift and every screen show them. `doorFrom` marks a floor whose art
+// has no lift door drawn — its door is painted on, copied from the door at that other floor's row.
 const FLOORS = [
-  { n: 1, row: 549 },
-  { n: 2, row: 479 },
+  { n: 'S1', row: 549, doorFrom: 479 },
+  { n: 1, row: 479 },
+  { n: 2, row: 423, doorFrom: 479 },
   { n: 3, row: 369 },
   { n: 4, row: 314 },
   { n: 5, row: 259 },
@@ -34,9 +35,8 @@ const TOP_FLOOR = FLOORS[FLOORS.length - 1].n;
 const floorAt = (row) => FLOORS.find((f) => f.row === row);
 const floorName = (row) => { const f = floorAt(row); return f ? `Piso ${f.n}` : 'Entrepiso'; };
 
-// The lift: one shaft of doors at x, one stop per floor. Floor 1 has no door drawn in the art, so
-// the game paints one there, copied from the door of `doorFrom` (door = its box, relative to row).
-const LIFT = { x: 386, door: { x0: 372, x1: 404, top: -27, bottom: -5 }, doorFrom: 479 };
+// The lift: one shaft of doors at x, one stop per floor (door = its box, relative to row).
+const LIFT = { x: 386, door: { x0: 372, x1: 404, top: -27, bottom: -5 } };
 
 // The labs and named rooms, by key. Change a name, a room or a colour here and the map, the phones
 // and the onboarding all follow. `room` is the room's span on the map [left wall, right wall]: its

@@ -84,10 +84,12 @@ function plaque(ctx, x, y, w, h, fill) {
 }
 // a floor number, as the black-and-yellow display above each lift door
 function drawFloorTag(ctx, cx, top, n) {
-  plaque(ctx, cx - 6, top + 0.5, 12, 10, '#111');
+  const s = String(n), wide = s.length > 1;
+  const w = wide ? 17 : 12;
+  plaque(ctx, cx - w / 2, top + 0.5, w, 10, '#111');
   ctx.fillStyle = MARK;
-  ctx.font = `800 8.5px ${SIGN_FONT_FAMILY}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.fillText(String(n), cx, top + 5.8);
+  ctx.font = `800 ${wide ? 7 : 8.5}px ${SIGN_FONT_FAMILY}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(s, cx, top + 5.8);
 }
 // a lab's title: its name on a plaque in the lab's colour
 function labSignWidth(ctx, lab) { ctx.font = SIGN_FONT; return Math.ceil(ctx.measureText(lab.name).width) + 8; }
