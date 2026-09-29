@@ -15,6 +15,12 @@ const CAREERS = {
   DAT: 'Ciencia de Datos',
   BIO: 'Ingeniería Biomédica',
 };
+// each career's icon (24px pixel art in public/icons/), shown with the student's results
+const CAREER_ICONS = {
+  SIS: 'Sistemas', ELN: 'Electronica', ELE: 'Electrica', MEC: 'Mecanica', CIV: 'Civil',
+  IND: 'Industrial', QUI: 'Quimica', AMB: 'Ambiental', DAT: 'Datos', BIO: 'Biomedica',
+};
+const careerIcon = (key) => (CAREER_ICONS[key] ? `icons/${CAREER_ICONS[key]}.png` : null);
 
 const EVENTS_PER_PLAYER = 4;   // each player answers this many rooms, then collects the result from Séneca
 

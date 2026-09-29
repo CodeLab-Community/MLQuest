@@ -439,7 +439,7 @@ function sendProgress(p) { toPhone(p.id, { t: 'progress', collected: p.done.size
 function sendResult(p) {
   const res = {
     t: 'result', collected: p.done.size, total: EVENTS_PER_PLAYER,
-    top: ranking(p.score).slice(0, 3).map((c) => ({ name: c.name, pct: c.pct, points: c.points })),
+    top: ranking(p.score).slice(0, 3).map((c) => ({ key: c.key, name: c.name, pct: c.pct, points: c.points })),
   };
   toPhone(p.id, res);
   if (p.id === 'kb') localQuiz(res);

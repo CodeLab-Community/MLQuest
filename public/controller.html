@@ -92,6 +92,13 @@
   #quiz .rank div { display:flex; align-items:center; gap:.75em; background:var(--cream); border:3px solid #000; box-shadow:inset 0 -4px 0 var(--brown); padding:.55em .9em .75em; font-size:1.08em; }
   #quiz .rank b { flex:1; }
   #quiz .rank .pos { display:grid; place-items:center; width:1.7em; height:1.7em; background:var(--mark); border:2px solid #000; font-weight:800; }
+  /* the career's icon: 24px pixel art whose drawing sits in the middle 10x10 px, so only that middle
+     is shown (background at 240%, centred), scaled up without smoothing */
+  #quiz .rank .icon { width:2.2em; height:2.2em; background:center / 240% no-repeat; image-rendering:pixelated; flex:0 0 auto; }
+  #quiz .rank .pct { font-weight:800; }
+  #quiz .rank div.first { background:var(--mark); box-shadow:inset 0 -4px 0 #d99a00; font-size:1.2em; }
+  #quiz .rank div.first .pos { background:#000; color:var(--mark); }
+  #quiz .rank div.first .icon { width:2.8em; height:2.8em; }
   #quiz .close { display:block; margin:.75em auto 0; padding:.55em 2.1em; font-size:1.08em; border-radius:0; color:var(--cream); background:var(--slab); border:3px solid #000; box-shadow:inset 0 3px 0 #8a8a8a, 3px 3px 0 rgba(0,0,0,.3); }
   #quiz .nav { display:flex; justify-content:center; gap:.75em; }
   #quiz .nav .close { margin:.75em 0 0; }
@@ -438,16 +445,20 @@ function showNotice(m) {
 }
 function showResult(m) {
   releaseAll();
-  setHeader('Tus 3 carreras mas afines', '', m.collected + '/' + m.total);
+  setHeader('Tus 3 carreras más afines', '', m.collected + '/' + m.total);
   if (!m.top.length || !m.collected) {
     qBody.appendChild(note('Todavía no has respondido nada. Busca los signos de admiración del edificio.'));
   } else {
     const list = document.createElement('div'); list.className = 'rank';
+    // each career with its icon; the first one, the most afín, stands out
     m.top.forEach((c, i) => {
       const row = document.createElement('div');
-      row.innerHTML = '<span class="pos">' + (i + 1) + '</span><b></b> <span></span>';
+      if (i === 0) row.className = 'first';
+      row.innerHTML = '<span class="pos">' + (i + 1) + '</span><span class="icon"></span><b></b> <span class="pct"></span>';
+      const icon = careerIcon(c.key);
+      if (icon) row.querySelector('.icon').style.backgroundImage = `url(${icon})`; else row.querySelector('.icon').remove();
       row.querySelector('b').textContent = c.name;
-      row.querySelector('span:last-child').textContent = c.pct + '%';
+      row.querySelector('.pct').textContent = c.pct + '%';
       list.appendChild(row);
     });
     qBody.appendChild(list);
