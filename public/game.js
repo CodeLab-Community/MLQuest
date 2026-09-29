@@ -16,6 +16,9 @@ const DROP_TIME = 0.18, DEATH_TIME = 1.4;
 // the lobby stairs come down to it on the right. Each slot stands a little further along it.
 const SPAWN = { x: 945, y: 500, spread: 14 };
 const STEP = 1 / 60;
+// a static NPC standing a bit left of the spawn point, forever idle — decoration only, no collision
+const MONIS = { x: SPAWN.x - 26, y: SPAWN.y + 6, name: 'Monis' };
+const DIEGO = { x: SPAWN.x - 20, y: SPAWN.y - 90 }; 
 
 const SPRITES = {            // file, frames, fps, loop
   Idle:      { n: 4, fps: 6,  loop: true },
@@ -605,6 +608,8 @@ addEventListener('keydown', (e) => {
 
 // ---------- render ----------
 let bg; const sheets = { m: {}, f: {} };   // character ('m' or 'f') -> { anim: image }
+let monisImg;   // the standalone Monis NPC, drawn separately from the players' sprite sheets
+let diegoImg;   // same idea as Monis, 16-frame idle sheet, no name tag
 const tinted = new Map();      // slot + look -> { anim: canvas }, the sheets in the slot's shirt colour and the player's skin and hair (colors.js)
 const tagColor = (p) => colorFor(p.slot);
 
@@ -637,10 +642,33 @@ function drawPlayer() {
   // standing where the action button does something: show that button over their head
   if (P.near !== null && !P.asking && !P.lift) drawActButton(ctx, cx, by - 32);
 }
+function drawMonis(t) {
+  if (!monisImg) return;
+  const def = SPRITES.Idle, f = Math.floor(t * def.fps) % def.n;
+  const cx = Math.round(MONIS.x + HB_W / 2), by = Math.round(MONIS.y + HB_H);
+  ctx.save();
+  ctx.translate(cx, by);
+  ctx.drawImage(monisImg, f * 16, 0, 16, 16, -8, -16, 16, 16);
+  ctx.restore();
+  ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = '#fff';
+  ctx.fillText(MONIS.name, cx, by - 19);
+}
+function drawDiego(t) {
+  if (!diegoImg) return;
+  const fps = SPRITES.Idle.fps, n = 16, f = Math.floor(t * fps) % n;
+  const cx = Math.round(DIEGO.x + HB_W / 2), by = Math.round(DIEGO.y + HB_H);
+  ctx.save();
+  ctx.translate(cx, by);
+  ctx.drawImage(diegoImg, f * 16, 0, 16, 16, -8, -16, 16, 16);
+  ctx.restore();
+}
 function draw(t) {
   ctx.clearRect(0, 0, W, H);
   ctx.drawImage(bg, 0, 0);
   drawMarkers(t);
+  drawMonis(t);
+  drawDiego(t);
   for (const p of players.values()) { P = p; drawPlayer(); }
 }
 
@@ -692,12 +720,16 @@ function connect() {
 
 const LAYERS = ['OtroFondo', 'Background', 'Suelos', 'Plataforma', 'Decoracion', 'Suelos-Escaleras', 'Plataforma-Escaleras'];
 (async function init() {
-  const [layers, ...imgs] = await Promise.all([
+  const [layers, monis, diego, ...imgs] = await Promise.all([
     Promise.all(LAYERS.map((n) => loadImg(`layers/${n}.png`))),
+    loadImg('sprites/m/IdleMonis.png'),
+    loadImg('sprites/m/IdleDiego.png'),
     ...Object.keys(SPRITES).map((n) => loadImg(`sprites/${n}.png`)),
     ...Object.keys(SPRITES).map((n) => loadImg(`sprites/f/${n}.png`)),
   ]);
   const [otroFondo, background, suelos, plataforma, decoracion, suelosEsc, plataformaEsc] = layers;
+  monisImg = monis;
+  diegoImg = diego;
   Object.keys(SPRITES).forEach((n, i) => { sheets.m[n] = imgs[i]; sheets.f[n] = imgs[i + Object.keys(SPRITES).length]; });
   buildCollision(suelos, plataforma, suelosEsc, plataformaEsc);   // the signs painted next must never become floors
   bg = paintBuilding(otroFondo, background, suelos, plataforma, decoracion);
