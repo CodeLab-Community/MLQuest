@@ -151,6 +151,8 @@
   #quiz .reg .yn button.pick { background:var(--mark); box-shadow:inset 0 -3px 0 #d99a00; }
   #quiz .reg .hint { margin:0; text-align:center; font-size:.9em; min-height:1.3em; }
   #quiz .reg.form label { display:grid; grid-template-columns:5.5em 1fr; }
+  /* the logo under the finale's big line: 16px pixel art, scaled up without smoothing */
+  #quiz .hero-logo { display:block; width:4.9em; height:4.9em; margin:.7em auto 0; image-rendering:pixelated; }
   /* the finale's big line */
   #quiz .hero { margin:1em auto .2em; max-width:24em; text-align:center; font-size:1.9em; font-weight:800; line-height:1.25; color:#000;
                 background:var(--mark); border:3px solid #000; box-shadow:inset 0 -5px 0 #d99a00, 4px 4px 0 rgba(0,0,0,.3); padding:.6em .8em .75em; }
@@ -386,7 +388,8 @@ function showFinale() {
   releaseAll();
   setHeader('¡Felicitaciones!', `Piso ${TOP_FLOOR}`, progressBadge());
   const big = document.createElement('p'); big.className = 'hero'; big.textContent = '¡Lograste ser Uniandino por un día!';
-  qBody.append(big, panelButton('Continuar ▶', showStudentForm, true));
+  const logo = Object.assign(document.createElement('img'), { className: 'hero-logo', src: 'logo-uniandes.png', alt: 'Uniandes' });
+  qBody.append(big, logo, panelButton('Continuar ▶', showStudentForm, true));
   openQuiz('finale');
 }
 function showStudentForm() {
