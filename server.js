@@ -9,6 +9,9 @@ import { WebSocketServer } from 'ws';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(__dirname, 'public');
+// local settings (SHEETS_URL, SHEETS_SECRET, PORT) from .env, if there is one; on Render they are set
+// in the dashboard instead. Variables already in the environment win over the file.
+try { process.loadEnvFile(path.join(__dirname, '.env')); } catch {}
 const PORT = process.env.PORT || 3000;
 
 const MIME = {
