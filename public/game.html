@@ -37,6 +37,17 @@
   <span>Telefono: <a id="ctrlUrl" href="/controller">/controller</a></span>
   <span>Teclado: <kbd>←→</kbd> mover · <kbd>Espacio</kbd> saltar · <kbd>Shift</kbd> dash · <kbd>E</kbd> interactuar · <kbd>1–8</kbd> piso en el ascensor · <kbd>K</kbd> morir · <kbd>C</kbd> cambiar personaje · <kbd>F</kbd> pantalla completa · <kbd>I</kbd> ocultar info</span>
 </div>
+<!-- música de fondo, solo en la pantalla del servidor (nunca en el celular) -->
+<audio id="bgMusic" src="music/MusicaMateRecords.wav" loop></audio>
+<script>
+  // los navegadores bloquean el autoplay con sonido sin gesto del usuario: si falla al cargar,
+  // reintenta en el primer click o tecla y ya queda sonando (loop) el resto de la partida
+  const bgMusic = document.getElementById('bgMusic');
+  const tryPlayMusic = () => bgMusic.play().catch(() => {});
+  tryPlayMusic();
+  addEventListener('click', tryPlayMusic, { once: true });
+  addEventListener('keydown', tryPlayMusic, { once: true });
+</script>
 <script src="events.js"></script>
 <script src="symbols.js"></script>
 <script src="colors.js"></script>
