@@ -373,10 +373,10 @@ function showLeft(m) {
   const left = m.total - m.collected;
   if (left > 0) {
     setHeader(`Te ${left === 1 ? 'falta 1 evento' : `faltan ${left} eventos`}`, '', m.collected + '/' + m.total);
-    qBody.append(note('Busca otro signo de admiración y oprime {act} debajo de él.'), panelButton('Seguir jugando', closeQuiz, true));
+    qBody.append(note('Busca otro signo de admiración y oprime {act} debajo de él.'), panelButton('Continuar ▶', closeQuiz, true));
   } else {
     setHeader(`¡Completaste tus ${m.total} eventos!`, '', m.collected + '/' + m.total);
-    qBody.append(note(m.next), panelButton('Entendido', closeQuiz, true));
+    qBody.append(note(m.next), panelButton('Continuar ▶', closeQuiz, true));
   }
   openQuiz('left');
 }
@@ -430,9 +430,9 @@ function showNotice(m) {
   releaseAll();
   setHeader(m.title, '', progressBadge());
   qBody.appendChild(note(m.text));
-  if (m.stay) qBody.appendChild(panelButton('Entendido', closeQuiz));
+  // nothing the game shows closes by itself: the student goes back to playing with Continuar
+  qBody.appendChild(panelButton('Continuar ▶', closeQuiz, true));
   openQuiz('notice');
-  if (!m.stay) flashTimer = setTimeout(closeQuiz, 2500);
 }
 function showResult(m) {
   releaseAll();
@@ -450,7 +450,7 @@ function showResult(m) {
     });
     qBody.appendChild(list);
   }
-  qBody.appendChild(panelButton('Cerrar', closeQuiz));
+  qBody.appendChild(panelButton('Continuar ▶', closeQuiz, true));
   openQuiz('result');
 }
 // the lift: a button per floor, 3 per row, each row reading low-to-high left-to-right, and the
