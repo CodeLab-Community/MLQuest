@@ -1,0 +1,214 @@
+name: Deploy MLQuest to VPS
+
+on:
+  push:
+    branches: [main]
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-mlquest-vps
+  cancel-in-progress: true
+
+jobs:
+  deploy-to-vps:
+    runs-on: ubuntu-latest
+
+    env:
+      PROXY_HOST: ${{ secrets.PROXY_HOST }}
+      PROXY_PORT: ${{ secrets.PROXY_PORT }}
+
+    steps:
+      - name: Instalar connect-proxy opcional
+        if: ${{ env.PROXY_HOST != '' && env.PROXY_PORT != '' }}
+        run: sudo apt-get update && sudo apt-get install -y connect-proxy
+
+      - name: Configurar SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          {
+            echo "Host vps"
+            echo " HostName ${{ secrets.VPS_HOST }}"
+            echo " User ${{ secrets.VPS_USER }}"
+            echo " Port ${{ secrets.VPS_PORT }}"
+            echo " IdentityFile ~/.ssh/deploy_key"
+            echo " StrictHostKeyChecking no"
+            if [[ -n "${{ secrets.PROXY_HOST }}" && -n "${{ secrets.PROXY_PORT }}" ]]; then
+              echo " ProxyCommand connect -H ${{ secrets.PROXY_HOST }}:${{ secrets.PROXY_PORT }} %h %p"
+            fi
+          } > ~/.ssh/config
+
+      - name: Deploy vía SSH con fallback a último commit funcional
+        id: deploy
+        run: |
+          ssh vps "bash -se" <<'DEPLOY_EOF'
+          set -euo pipefail
+
+          PROJECT_DIR="${{ secrets.PROJECT_DIR }}"
+          if [ -z "$PROJECT_DIR" ]; then
+              PROJECT_DIR="$HOME/mlquest"
+          fi
+
+          mkdir -p "$PROJECT_DIR"
+
+          # Guardar el último commit funcional antes de tocar el repositorio.
+          LAST_GOOD_COMMIT=""
+          if [ -d "$PROJECT_DIR/.git" ]; then
+              LAST_GOOD_COMMIT=$(git -C "$PROJECT_DIR" rev-parse HEAD 2>/dev/null || true)
+              if [ -n "$LAST_GOOD_COMMIT" ]; then
+                  git -C "$PROJECT_DIR" branch -f last-known-good "$LAST_GOOD_COMMIT"
+              fi
+          fi
+
+          DEPLOY_FAILED=0
+          ROLLED_BACK=0
+
+          deploy_current() {
+            if [ -d "$PROJECT_DIR/.git" ]; then
+                echo "Actualizando repositorio en VPS..."
+                git -C "$PROJECT_DIR" fetch --depth=10 --prune origin
+                git -C "$PROJECT_DIR" checkout -f main
+                git -C "$PROJECT_DIR" reset --hard origin/main
+            else
+                echo "Clonando repositorio en VPS..."
+                git clone --branch main --depth 1 "https://github.com/${{ github.repository }}.git" "$PROJECT_DIR"
+            fi
+
+            cd "$PROJECT_DIR"
+
+            if [ ! -f docker-compose.yml ]; then
+                echo "No se encontró docker-compose.yml"
+                return 1
+            fi
+
+            # Regenerar .env siempre para reflejar los últimos secrets
+            echo "Generando .env..."
+            cat << 'ENV_EOF' > .env
+          PORT=3000
+          SHEETS_URL=${{ secrets.SHEETS_URL }}
+          SHEETS_SECRET=${{ secrets.SHEETS_SECRET }}
+          ENV_EOF
+            chmod 600 .env
+
+            echo "Construyendo e iniciando contenedores..."
+            docker compose up -d --build --force-recreate --remove-orphans
+          }
+
+          wait_service() {
+              service="$1"
+              timeout_secs="$2"
+              elapsed=0
+              while [ "$elapsed" -lt "$timeout_secs" ]; do
+                  cid=$(docker compose ps -q "$service" || true)
+                  if [ -n "$cid" ]; then
+                      status=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$cid" 2>/dev/null || true)
+                      if [ "$status" = "healthy" ] || [ "$status" = "running" ]; then
+                          echo "[OK] $service -> $status"
+                          return 0
+                      fi
+                      if [ "$status" = "unhealthy" ] || [ "$status" = "exited" ] || [ "$status" = "dead" ]; then
+                          echo "[ERROR] $service -> $status"
+                          return 1
+                      fi
+                  fi
+                  sleep 5
+                  elapsed=$((elapsed + 5))
+              done
+              echo "[TIMEOUT] $service no alcanzó estado healthy/running"
+              return 1
+          }
+
+          healthcheck() {
+            health_failed=0
+            wait_service mlquest-app 120 || health_failed=1
+            wait_service mlquest-nginx 60 || health_failed=1
+            return $health_failed
+          }
+
+          # Intento 1: desplegar el commit actual de main
+          if deploy_current; then
+              if ! healthcheck; then
+                  DEPLOY_FAILED=1
+              fi
+          else
+              DEPLOY_FAILED=1
+          fi
+
+          # Fallback: si falló y teníamos un commit previo funcional, hacer rollback
+          if [ "$DEPLOY_FAILED" -ne 0 ] && [ -n "$LAST_GOOD_COMMIT" ]; then
+              echo ""
+              echo "====================================================================="
+              echo "FALLO EL DESPLIEGUE. EJECUTANDO FALLBACK AL ULTIMO COMMIT FUNCIONAL"
+              echo "Rollback a: $LAST_GOOD_COMMIT"
+              echo "====================================================================="
+
+              cd "$PROJECT_DIR"
+              git -C "$PROJECT_DIR" reset --hard last-known-good
+
+              echo "Regenerando .env para rollback..."
+              cat << 'ENV_EOF' > .env
+          PORT=3000
+          SHEETS_URL=${{ secrets.SHEETS_URL }}
+          SHEETS_SECRET=${{ secrets.SHEETS_SECRET }}
+          ENV_EOF
+              chmod 600 .env
+
+              docker compose up -d --build --force-recreate --remove-orphans
+
+              if healthcheck; then
+                  echo "Rollback exitoso. El sistema vuelve a estar estable."
+                  ROLLED_BACK=1
+                  DEPLOY_FAILED=0
+              else
+                  echo "ERROR CRITICO: Incluso el rollback fallo."
+                  exit 1
+              fi
+          fi
+
+          if [ "$DEPLOY_FAILED" -ne 0 ]; then
+              echo "ERROR CRITICO: No habia commit anterior funcional para hacer rollback."
+              exit 1
+          fi
+
+          # Persistir el commit funcional para la próxima ejecución
+          cd "$PROJECT_DIR"
+          git rev-parse HEAD > "$PROJECT_DIR/.last-good-commit"
+          echo "Commit funcional guardado: $(cat "$PROJECT_DIR/.last-good-commit")"
+
+          echo "Deploy validado correctamente."
+          docker image prune -a -f
+
+          # Exportar estado al runner
+          echo "DEPLOY_FAILED=$DEPLOY_FAILED" > /tmp/deploy_state
+          echo "ROLLED_BACK=$ROLLED_BACK" >> /tmp/deploy_state
+          echo "LAST_GOOD_COMMIT=$LAST_GOOD_COMMIT" >> /tmp/deploy_state
+          DEPLOY_EOF
+
+      - name: Recuperar estado del despliegue
+        if: always()
+        run: |
+          ssh vps "cat /tmp/deploy_state 2>/dev/null || true" > /tmp/deploy_state_local || true
+          if [ -f /tmp/deploy_state_local ]; then
+            while IFS='=' read -r key value; do
+              [ -n "$key" ] && echo "$key=$value" >> "$GITHUB_ENV"
+            done < /tmp/deploy_state_local
+          fi
+
+      - name: Resumen de despliegue
+        if: always()
+        run: |
+          echo "### Deploy de MLQuest en VPS ejecutado" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Rama: \`main\`" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${ROLLED_BACK:-0}" = "1" ]; then
+            echo "- El despliegue del commit actual falló y se aplicó **rollback** al último commit funcional." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "${DEPLOY_FAILED:-0}" = "1" ]; then
+            echo "- El despliegue falló y no fue posible aplicar rollback." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- Deploy exitoso." >> "$GITHUB_STEP_SUMMARY"
+          fi
