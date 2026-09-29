@@ -80,24 +80,22 @@ jobs:
                 git clone --branch main --depth 1 "https://github.com/${{ github.repository }}.git" "$PROJECT_DIR"
             fi
 
-            cd "$PROJECT_DIR"
-
-            if [ ! -f docker-compose.yml ]; then
+            if [ ! -f "$PROJECT_DIR/docker-compose.yml" ]; then
                 echo "No se encontró docker-compose.yml"
                 return 1
             fi
 
             # Regenerar .env siempre para reflejar los últimos secrets
             echo "Generando .env..."
-            cat << 'ENV_EOF' > .env
+            cat << 'ENV_EOF' > "$PROJECT_DIR/.env"
           PORT=3000
           SHEETS_URL=${{ secrets.SHEETS_URL }}
           SHEETS_SECRET=${{ secrets.SHEETS_SECRET }}
           ENV_EOF
-            chmod 600 .env
+            chmod 600 "$PROJECT_DIR/.env"
 
             echo "Construyendo e iniciando contenedores..."
-            docker compose up -d --build --force-recreate --remove-orphans
+            docker compose -f "$PROJECT_DIR/docker-compose.yml" up -d --build --force-recreate --remove-orphans
           }
 
           wait_service() {
@@ -105,7 +103,7 @@ jobs:
               timeout_secs="$2"
               elapsed=0
               while [ "$elapsed" -lt "$timeout_secs" ]; do
-                  cid=$(docker compose ps -q "$service" || true)
+                  cid=$(docker compose -f "$PROJECT_DIR/docker-compose.yml" ps -q "$service" || true)
                   if [ -n "$cid" ]; then
                       status=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$cid" 2>/dev/null || true)
                       if [ "$status" = "healthy" ] || [ "$status" = "running" ]; then
@@ -126,8 +124,8 @@ jobs:
 
           healthcheck() {
             health_failed=0
-            wait_service mlquest-app 120 || health_failed=1
-            wait_service mlquest-nginx 60 || health_failed=1
+            wait_service app 120 || health_failed=1
+            wait_service nginx 60 || health_failed=1
             return $health_failed
           }
 
@@ -148,18 +146,17 @@ jobs:
               echo "Rollback a: $LAST_GOOD_COMMIT"
               echo "====================================================================="
 
-              cd "$PROJECT_DIR"
               git -C "$PROJECT_DIR" reset --hard last-known-good
 
               echo "Regenerando .env para rollback..."
-              cat << 'ENV_EOF' > .env
+              cat << 'ENV_EOF' > "$PROJECT_DIR/.env"
           PORT=3000
           SHEETS_URL=${{ secrets.SHEETS_URL }}
           SHEETS_SECRET=${{ secrets.SHEETS_SECRET }}
           ENV_EOF
-              chmod 600 .env
+              chmod 600 "$PROJECT_DIR/.env"
 
-              docker compose up -d --build --force-recreate --remove-orphans
+              docker compose -f "$PROJECT_DIR/docker-compose.yml" up -d --build --force-recreate --remove-orphans
 
               if healthcheck; then
                   echo "Rollback exitoso. El sistema vuelve a estar estable."
@@ -177,8 +174,7 @@ jobs:
           fi
 
           # Persistir el commit funcional para la próxima ejecución
-          cd "$PROJECT_DIR"
-          git rev-parse HEAD > "$PROJECT_DIR/.last-good-commit"
+          git -C "$PROJECT_DIR" rev-parse HEAD > "$PROJECT_DIR/.last-good-commit"
           echo "Commit funcional guardado: $(cat "$PROJECT_DIR/.last-good-commit")"
 
           echo "Deploy validado correctamente."
