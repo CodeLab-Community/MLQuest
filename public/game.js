@@ -535,6 +535,7 @@ function drawSigns() {
   for (const f of FLOORS) drawFloorTag(g, LIFT.x, f.row + LIFT.door.top - 12, f.n);
   for (const lab of Object.values(LABS)) drawLabSign(g, lab.x, lab.signY, lab);
   drawMapKey(g);
+  drawQR(g);
 }
 let signsTimer = null;
 addEventListener('resize', () => { clearTimeout(signsTimer); signsTimer = setTimeout(drawSigns, 150); });
@@ -547,19 +548,31 @@ const MAP_KEY = [
   { icon: (g, x, y) => drawLabSign(g, x, y - 6, { name: 'Lab', color: LABS.elec.color }), title: 'Laboratorio', text: ['Su nombre va en el', 'letrero de color'] },
   { icon: (g, x, y) => drawStar(g, x, y + 6), title: `Séneca (piso ${TOP_FLOOR})`, text: [`Con ${EVENTS_PER_PLAYER} eventos listos,`, 've por tus resultados'] },
 ];
+// The phones' way in: just a QR to /controller, in the free sky at the top left (above the floor-8
+// terrace, left of its umbrella), with the key starting to its right. Loaded at start (see init).
+const QR = { x: 6, y: 4, size: 80, src: 'qr-controller.webp' };
+let qrImg = null;
+function drawQR(g) {
+  if (!qrImg) return;
+  plaque(g, QR.x + 0.5, QR.y + 0.5, QR.size - 1, QR.size - 1, '#fff');
+  const smooth = g.imageSmoothingEnabled;
+  g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high';   // a big image scaled down: smooth, or the modules alias
+  g.drawImage(qrImg, QR.x + 2, QR.y + 2, QR.size - 4, QR.size - 4);
+  g.imageSmoothingEnabled = smooth;
+}
 function drawMapKey(g) {
-  const x0 = 24, y0 = 4, w = 880, h = 50, cell = w / MAP_KEY.length;
+  const x0 = 140, y0 = 4, w = 764, h = 50, cell = w / MAP_KEY.length;
   plaque(g, x0 + 0.5, y0 + 0.5, w - 1, h - 1, '#f3ead2');
   g.fillStyle = '#d9c9a3'; g.fillRect(x0 + 2, y0 + h - 4, w - 4, 2);
   g.textAlign = 'left'; g.textBaseline = 'alphabetic';
   MAP_KEY.forEach((k, i) => {
     const cx = x0 + i * cell;
     if (i) { g.fillStyle = '#9e8572'; g.fillRect(cx, y0 + 6, 1, h - 14); }
-    k.icon(g, cx + 22, y0 + 22);
+    k.icon(g, cx + 18, y0 + 22);
     g.fillStyle = '#2b2118'; g.textAlign = 'left';
-    g.font = `700 10px ${SIGN_FONT_FAMILY}`; g.fillText(k.title, cx + 40, y0 + 15);
+    g.font = `700 10px ${SIGN_FONT_FAMILY}`; g.fillText(k.title, cx + 33, y0 + 15);
     g.font = `9px ${SIGN_FONT_FAMILY}`;
-    k.text.forEach((t, j) => g.fillText(t, cx + 40, y0 + 27 + j * 10));
+    k.text.forEach((t, j) => g.fillText(t, cx + 33, y0 + 27 + j * 10));
   });
 }
 function drawMarkers(t) {
@@ -733,6 +746,7 @@ const LAYERS = ['OtroFondo', 'Background', 'Suelos', 'Plataforma', 'Decoracion',
   Object.keys(SPRITES).forEach((n, i) => { sheets.m[n] = imgs[i]; sheets.f[n] = imgs[i + Object.keys(SPRITES).length]; });
   buildCollision(suelos, plataforma, suelosEsc, plataformaEsc);   // the signs painted next must never become floors
   bg = paintBuilding(otroFondo, background, suelos, plataforma, decoracion);
+  qrImg = await loadImg(QR.src).catch(() => null);   // without it the map just has no QR
   drawSigns();
   // disabled on purpose: this was the unexplained solid box Sergio kept finding in the art — it
   // isn't needed (the goal trigger is its own zone check, not tied to standing on the planter),
