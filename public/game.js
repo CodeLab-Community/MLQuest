@@ -404,10 +404,11 @@ function answerEvent(p, choice) {
   for (const [k, v] of Object.entries(ev.options[choice].s)) p.score[k] = (p.score[k] || 0) + v;
   p.done.add(ev.id);
   p.answers.push({ ev: ev.id, choice });
-  closeAsk(p);
+  // no 'close' to the phone: its question stays up until this 'saved' replaces it with how many
+  // events are left (or, after the last one, where Séneca is), so the controls never flash between them
+  p.asking = null;
+  if (p.id === 'kb') localQuiz(null);
   sendProgress(p);
-  // the phone shows "event complete" with a Continuar button, then how many are left (or, after the
-  // last one, where Séneca is)
   toPhone(p.id, { t: 'saved', room: ev.room, collected: p.done.size, total: EVENTS_PER_PLAYER, next: GOAL_TEXT });
 }
 // The finale at Séneca: the phone congratulates the student and asks for their name and phone. Once

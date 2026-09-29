@@ -355,21 +355,20 @@ function showQuestion(m) {
       picked = true;
       b.classList.add('pick');                // light up the "final answer" for a moment, then send it
       if (navigator.vibrate) navigator.vibrate(15);
-      setTimeout(() => { send({ t: 'answer', ev: m.ev, choice: i }); closeQuiz(); }, 350);
+      // the question stays up, answer lit, until the game's 'saved' replaces it — no gap showing the
+      // controls. Should that never come (connection lost), the panel still closes after a while.
+      send({ t: 'answer', ev: m.ev, choice: i });
+      flashTimer = setTimeout(() => { if (panel === 'ask') closeQuiz(); }, 5000);
     });
     list.appendChild(b);
   });
   qBody.append(stem, list);
   openQuiz('ask');
 }
-// after an event: first "event complete" with a Continuar button, and only then how many are left
+// after an event: one screen, straight from the question — how many events are left (or, after the
+// last one, where Séneca is) — and Continuar takes the student back to the game
 function showSaved(m) {
   releaseAll();
-  setHeader('¡Evento completado!', m.room, m.collected + '/' + m.total);
-  qBody.append(note('Tu respuesta quedó guardada.'), panelButton('Continuar ▶', () => showLeft(m), true));
-  openQuiz('saved');
-}
-function showLeft(m) {
   const left = m.total - m.collected;
   if (left > 0) {
     setHeader(`Te ${left === 1 ? 'falta 1 evento' : `faltan ${left} eventos`}`, '', m.collected + '/' + m.total);
@@ -378,7 +377,7 @@ function showLeft(m) {
     setHeader(`¡Completaste tus ${m.total} eventos!`, '', m.collected + '/' + m.total);
     qBody.append(note(m.next), panelButton('Continuar ▶', closeQuiz, true));
   }
-  openQuiz('left');
+  openQuiz('saved');
 }
 // The finale, at Séneca once every event is done: a congratulation, then the student's name and phone
 // (only if they authorized personal data at sign-up), then "Descubrir puntaje" asks the game for the
