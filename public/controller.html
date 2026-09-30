@@ -104,6 +104,7 @@
   #quiz .nav .close { margin:.75em 0 0; }
   #quiz .close.go { background:var(--mark); color:#000; box-shadow:inset 0 -4px 0 #d99a00, 3px 3px 0 rgba(0,0,0,.3); }
   #quiz .nav .close:disabled { opacity:.45; }
+  #quiz .nav .close.ig { color:#fff; text-shadow:1px 1px 0 #000; background:linear-gradient(45deg, #f9a825, #e1306c 45%, #833ab4); box-shadow:inset 0 -4px 0 rgba(0,0,0,.3), 3px 3px 0 rgba(0,0,0,.3); }
   /* the lift's floor panel: black buttons with yellow numbers, like the display over every lift door */
   #quiz .lift { display:grid; grid-template-columns:repeat(3, 4.6em); gap:.85em; justify-content:center; justify-items:center; margin:.3em auto 0; padding:1em 1.2em;
                 background:var(--cream); border:3px solid #000; box-shadow:inset 0 -4px 0 var(--brown), 4px 4px 0 rgba(0,0,0,.3); }
@@ -115,6 +116,9 @@
   #quiz .lift button.wide { font-size:1.05em; width:4.4em; height:4.4em; }
   #quiz .lift button.here { background:var(--mark); color:#000; border-color:#000; box-shadow:none; }
   /* onboarding: the map's symbols, each drawn exactly as on the big screen, with what it means */
+  #quiz .goal { width:min(49em, 100%); box-sizing:border-box; margin:0 auto .6em; padding:.5em .8em .65em; background:var(--mark); border:3px solid #000;
+                box-shadow:inset 0 -4px 0 #d99a00; text-align:center; line-height:1.4; }
+  #quiz .goal b { font-size:1.25em; }
   #quiz .legend { display:grid; grid-template-columns:repeat(3, 1fr); gap:.6em; width:min(69em, 100%); margin:0 auto; }
   #quiz .legend > div { display:flex; align-items:center; gap:.75em; background:var(--cream); border:3px solid #000;
                         box-shadow:inset 0 -4px 0 var(--brown); padding:.45em .6em .7em; font-size:.85em; line-height:1.3; }
@@ -130,8 +134,13 @@
   #quiz .keys .k2 img { width:1.8em; image-rendering:pixelated; }
   #quiz .keys .lrk { border-radius:0; background:var(--cream); color:var(--ink); text-shadow:none; font-size:1.2em; padding:0; display:flex; }
   #quiz .keys .lrk span { padding:.4em .55em; } #quiz .keys .lrk span + span { border-left:3px solid #000; }
-  #quiz .steps { width:min(49em, 100%); margin:0 auto; padding:.6em 1.1em .6em 2.6em; background:var(--cream); border:3px solid #000; box-shadow:inset 0 -4px 0 var(--brown);
-                 line-height:1.5; }
+  /* numbered by hand, inside each step: the list's own markers hang outside the box and their width
+     depends on each phone's font */
+  #quiz .steps { width:min(49em, 100%); box-sizing:border-box; margin:0 auto; padding:.6em 1em .8em; background:var(--cream); border:3px solid #000; box-shadow:inset 0 -4px 0 var(--brown);
+                 line-height:1.5; list-style:none; counter-reset:step; display:grid; gap:.35em; }
+  #quiz .steps li { counter-increment:step; display:flex; align-items:baseline; gap:.6em; }
+  #quiz .steps li::before { content:counter(step); flex:0 0 auto; display:inline-grid; place-items:center; width:1.5em; height:1.5em;
+                            background:var(--mark); border:2px solid #000; font-weight:800; line-height:1; }
   /* character preview: every phone gets a different colour, so show the student which one is theirs */
   .me { justify-self:center; visibility:hidden; display:flex; flex-direction:column; align-items:center; gap:4px; --sp:min(64px, 17vh);
         pointer-events:none; font-size:11px; font-weight:700; }
@@ -156,8 +165,10 @@
   #quiz .reg .yn span { flex:1; font-weight:700; }
   #quiz .reg .yn button { padding:.3em 1.1em .45em; background:#fff; border:3px solid #000; border-radius:0; font-weight:800; box-shadow:inset 0 -3px 0 var(--brown); }
   #quiz .reg .yn button.pick { background:var(--mark); box-shadow:inset 0 -3px 0 #d99a00; }
-  #quiz .reg .hint { margin:0; text-align:center; font-size:.9em; min-height:1.3em; }
-  #quiz .reg.form label { display:grid; grid-template-columns:5.5em 1fr; }
+  #quiz .hint { margin:0; text-align:center; font-size:.9em; min-height:1.3em; }
+  #quiz .reg .fields { display:grid; grid-template-columns:1fr 1fr; gap:.5em .9em; }
+  #quiz .reg .fields label:first-child { grid-column:1 / -1; }
+  #quiz .reg input:disabled { opacity:.45; }
   /* the logo under the finale's big line: 16px pixel art, scaled up without smoothing */
   #quiz .hero-logo { display:block; width:4.9em; height:4.9em; margin:.7em auto 0; image-rendering:pixelated; }
   /* the finale's big line */
@@ -170,7 +181,10 @@
   #quiz .swatches button { width:2.8em; height:2.8em; padding:0; border:3px solid #000; box-shadow:inset 0 -4px 0 rgba(0,0,0,.25); }
   #quiz .swatches button.pick { outline:4px solid var(--mark); outline-offset:2px; }
   #quiz .chars .pic { width:6em; height:6em; background:0 0 / 400% 100% no-repeat; image-rendering:pixelated; animation:idle2 .67s steps(4) infinite; }
-  .rotate { display:none; position:fixed; inset:0; background:var(--planks); font-weight:700; z-index:9; align-items:center; justify-content:center; text-align:center; padding:24px; font-size:18px; }
+  /* the phone is only ever used sideways: upright, this covers every screen, panels included */
+  .rotate { display:none; position:fixed; inset:0; background:var(--planks); font-weight:700; z-index:100; flex-direction:column; gap:12px; align-items:center; justify-content:center; text-align:center; padding:24px; font-size:18px; }
+  .rotate span { font-size:56px; line-height:1; animation:turn 1.6s ease-in-out infinite; }
+  @keyframes turn { 0%, 30% { transform:rotate(0); } 60%, 100% { transform:rotate(-90deg); } }
   @media (orientation:portrait) { .rotate { display:flex; } }
 </style>
 </head>
@@ -192,7 +206,7 @@
   <header><h1 id="qRoom"></h1><span class="floor" id="qFloor"></span><span class="badge" id="qBadge"></span></header>
   <div class="body" id="qBody"></div>
 </div>
-<div class="rotate">Gira el telefono a horizontal ↻</div>
+<div class="rotate"><span>📱</span>Gira el teléfono a horizontal para jugar</div>
 <script src="events.js"></script>
 <script src="symbols.js"></script>
 <script src="colors.js"></script>
@@ -252,7 +266,7 @@ function send(msg = { t: 'input', s: { ...state } }) {
 }
 function connect() {
   ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws?role=controller&key=${KEY}&char=${char || 'm'}&skin=${skin}&hair=${hair}`);
-  ws.onopen = () => { txt.textContent = 'conectado'; send(); if (registered()) send({ t: 'register', ...JSON.parse(store.get('mlquest-reg')) }); };
+  ws.onopen = () => { txt.textContent = 'conectado'; send(); if (registered()) send({ t: 'register', ...savedReg() }); };
   ws.onmessage = (ev) => {
     const m = JSON.parse(ev.data);
     if (m.t === 'hello') {
@@ -388,51 +402,16 @@ function showSaved(m) {
   }
   openQuiz('saved');
 }
-// The finale, at Séneca once every event is done: a congratulation, then the student's name and phone
-// (only if they authorized personal data at sign-up), then "Descubrir puntaje" asks the game for the
-// result, which arrives as a 'result' message and replaces this panel.
+// The finale, at Séneca once every event is done: the congratulation and "Revelar resultados", which
+// asks the game for the result; it arrives as a 'result' message and replaces this panel. The
+// student's name, phone and email were given at sign-up.
 function showFinale() {
   releaseAll();
   setHeader('¡Felicitaciones!', `Piso ${TOP_FLOOR}`, progressBadge());
   const big = document.createElement('p'); big.className = 'hero'; big.textContent = '¡Lograste ser Uniandino por un día!';
   const logo = Object.assign(document.createElement('img'), { className: 'hero-logo', src: 'logo-uniandes.png', alt: 'Uniandes' });
-  qBody.append(big, logo, panelButton('Continuar ▶', showStudentForm, true));
-  openQuiz('finale');
-}
-function showStudentForm() {
-  const reg = registered() ? JSON.parse(store.get('mlquest-reg')) : {};
-  setHeader('Tus datos', '', progressBadge());
-  const f = document.createElement('div'); f.className = 'reg form';
-  const go = panelButton('Descubrir puntaje', () => {
-    go.disabled = true; go.textContent = 'Calculando…';
-    send({ t: 'finish', name: name ? name.value.trim() : '', phone: phone ? phone.value.trim() : '' });
-  }, true);
-  let name = null, phone = null;
-  if (reg.personal) {
-    const field = (label, attrs) => {
-      const l = document.createElement('label'); l.textContent = label;
-      const i = Object.assign(document.createElement('input'), attrs);
-      i.addEventListener('input', check);
-      l.appendChild(i); f.appendChild(l);
-      return i;
-    };
-    name = field('Nombre', { type: 'text', placeholder: 'Tu nombre completo', autocomplete: 'name', maxLength: 80 });
-    phone = field('Teléfono', { type: 'tel', placeholder: '300 123 4567', autocomplete: 'tel', inputMode: 'tel', maxLength: 30 });
-  } else {
-    f.appendChild(note('Como no autorizaste el uso de tus datos personales, no te pediremos nombre ni teléfono.'));
-  }
-  const hint = document.createElement('p'); hint.className = 'hint'; f.appendChild(hint);
-  function check() {
-    if (!name) return;
-    const digits = phone.value.replace(/\D/g, '').length;
-    const okName = name.value.trim().length >= 2, okPhone = digits >= 7 && digits <= 15;
-    phone.classList.toggle('bad', !!phone.value.trim() && !okPhone);
-    go.disabled = !okName || !okPhone;
-    hint.textContent = phone.value.trim() && !okPhone ? 'Revisa tu teléfono.' : '';
-  }
-  const nav = document.createElement('div'); nav.className = 'nav'; nav.appendChild(go);
-  qBody.append(f, nav);
-  check();
+  const go = panelButton('Revelar resultados', () => { go.disabled = true; go.textContent = 'Calculando…'; send({ t: 'finish' }); }, true);
+  qBody.append(big, logo, go);
   openQuiz('finale');
 }
 function showNotice(m) {
@@ -463,7 +442,26 @@ function showResult(m) {
     });
     qBody.appendChild(list);
   }
-  qBody.appendChild(panelButton('Continuar ▶', closeQuiz, true));
+  const nav = document.createElement('div'); nav.className = 'nav';
+  if (m.top.length && m.collected) {
+    // the picture is made now, not on the tap: the phone only opens its share sheet when asked right
+    // as the button is touched, and waiting for the picture first would lose that
+    let file = null;
+    const share = panelButton('Preparando imagen…', () => {
+      if (!file) return;
+      if (!canShareFile(file)) { hint.textContent = 'Tu navegador no permite compartir desde aquí. Abre el juego desde su enlace https.'; return; }
+      navigator.share({ files: [file], title: 'ML Quest' }).catch(() => {});   // cancelled: nothing to do
+    });
+    share.classList.add('ig'); share.disabled = true;
+    storyImage(m.top).then((blob) => {
+      file = new File([blob], 'mlquest-resultado.png', { type: 'image/png' });
+      share.textContent = 'Compartir en Instagram'; share.disabled = false;
+    }).catch(() => { share.textContent = 'No se pudo crear la imagen'; });
+    nav.appendChild(share);
+  }
+  nav.appendChild(panelButton('Continuar ▶', closeQuiz, true));
+  const hint = document.createElement('p'); hint.className = 'hint';
+  qBody.append(nav, hint);
   openQuiz('result');
 }
 // the lift: a button per floor, 3 per row, each row reading low-to-high left-to-right, and the
@@ -486,12 +484,76 @@ function showLift(m) {
   openQuiz('lift');
 }
 
-// ---- sign-up: the very first thing on a phone. The student's email, and whether they authorize the
-// use of their personal and sensitive data. Without the personal-data authorization the email is not
-// kept, and they still get to play.
+// ---- the Instagram story: a 1080x1920 picture of the student's result, over the building (ML.png),
+// with their own character and their top 3 careers. Shared through the phone's share sheet, where
+// Instagram offers "Historia".
+const loadImage = (src) => new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok(i); i.onerror = fail; i.src = src; });
+async function storyImage(top) {
+  const W = 1080, H = 1920, FONT = 'ui-monospace, Menlo, Consolas, monospace';
+  const [map, logo, sheet, ...icons] = await Promise.all([
+    loadImage('ML.png'), loadImage('logo-uniandes.png'), loadImage(`sprites/${char === 'f' ? 'f/' : ''}Idle.png`),
+    ...top.map((c) => (careerIcon(c.key) ? loadImage(careerIcon(c.key)).catch(() => null) : null)),
+  ]);
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d'); g.imageSmoothingEnabled = false;
+  // the building fills the picture, crisp and darkened so everything on it reads
+  const k = H / map.height, sw = W / k;
+  g.drawImage(map, (map.width - sw) / 2, 0, sw, map.height, 0, 0, W, H);
+  const shade = g.createLinearGradient(0, 0, 0, H);
+  shade.addColorStop(0, 'rgba(20,16,30,.55)'); shade.addColorStop(.5, 'rgba(20,16,30,.35)'); shade.addColorStop(1, 'rgba(20,16,30,.8)');
+  g.fillStyle = shade; g.fillRect(0, 0, W, H);
+  // a pixel-art box: black border, a darker lip at the bottom, a drop shadow
+  const box = (x, y, w, h, fill, lip) => {
+    g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(x + 12, y + 12, w, h);
+    g.fillStyle = '#000'; g.fillRect(x - 6, y - 6, w + 12, h + 12);
+    g.fillStyle = fill; g.fillRect(x, y, w, h);
+    g.fillStyle = lip; g.fillRect(x, y + h - 12, w, 12);
+  };
+  const text = (t, x, y, size, color, align = 'center', maxW = W - 120) => {
+    let s = size;
+    do { g.font = `800 ${s}px ${FONT}`; s -= 2; } while (g.measureText(t).width > maxW && s > 20);
+    g.textAlign = align; g.textBaseline = 'middle'; g.fillStyle = color; g.fillText(t, x, y);
+  };
+  const shadowed = (t, x, y, size) => { text(t, x + 5, y + 5, size, '#000'); text(t, x, y, size, '#fff'); };
+
+  // header: the logo and the game's name
+  g.drawImage(logo, W / 2 - 64, 110, 128, 128);
+  shadowed('ML QUEST', W / 2, 290, 64);
+  // the big line
+  box(90, 360, W - 180, 230, '#ffd23f', '#d99a00');
+  text('¡Fui parte de Uniandes', W / 2, 440, 64, '#000');
+  text('por un día!', W / 2, 525, 64, '#000');
+  // the character, in this player's colours, on a card
+  box(W / 2 - 220, 680, 440, 440, '#f3ead2', '#debc8b');
+  const me = recolorSheet(sheet, { shirt: tagColor(), skin, hair });
+  g.drawImage(me, 0, 0, 16, 16, W / 2 - 176, 700, 352, 352);
+  // the top 3 careers
+  shadowed('Mis 3 carreras más afines', W / 2, 1230, 50);
+  top.slice(0, 3).forEach((car, i) => {
+    const y = 1310 + i * 170, h = 140, first = i === 0;
+    box(90, y, W - 180, h, first ? '#ffd23f' : '#f3ead2', first ? '#d99a00' : '#9e8572');
+    g.fillStyle = first ? '#000' : '#ffd23f'; g.fillRect(120, y + 30, 70, 70);
+    text(String(i + 1), 155, y + 66, 48, first ? '#ffd23f' : '#000');
+    let x = 215;
+    // the icons carry a wide margin: only their middle is drawn, as on the result screen (.rank .icon)
+    if (icons[i]) { const ic = icons[i], cw = ic.width / 2.4, ch = ic.height / 2.4; g.drawImage(ic, (ic.width - cw) / 2, (ic.height - ch) / 2, cw, ch, x, y + 22, 92, 92); x += 112; }
+    text(`${car.pct}%`, W - 120, y + 66, 52, '#000', 'right');
+    text(car.name, x, y + 66, 44, '#2b2118', 'left', W - 120 - 150 - x);
+  });
+  shadowed('Universidad de los Andes', W / 2, 1840, 38);
+  return new Promise((ok) => c.toBlob(ok, 'image/png'));
+}
+// sharing files needs a phone browser that supports it and a secure page (https)
+const canShareFile = (file) => !!(navigator.canShare && navigator.canShare({ files: [file] }));
+
+// ---- sign-up: the very first thing on a phone. The student's name, phone and email, and whether they
+// authorize the use of their personal and sensitive data. Without the personal-data authorization none
+// of the three is kept, and they still get to play.
 const DATA_POLICY_URL = 'https://www.uniandes.edu.co/es/descargar/documento-documento-sobre-la-autorizacion-de-uso-de-datos-personales-y-propiedad-intelectual-otorgada-la-universidad-en-formularios-electronicos';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const registered = () => !!store.get('mlquest-reg');
+const savedReg = () => { try { return JSON.parse(store.get('mlquest-reg')) || null; } catch { return null; } };
+// signed up: a sign-up from before name and phone were asked here counts only if it declined personal data
+const registered = () => { const r = savedReg(); return !!r && (r.personal === false || !!r.name); };
 function showRegister() {
   releaseAll();
   setHeader('Antes de empezar', 'Registro', '');
@@ -500,10 +562,18 @@ function showRegister() {
   const doc = document.createElement('p'); doc.className = 'doc';
   doc.append('Autorización para el uso de datos personales: ');
   doc.appendChild(Object.assign(document.createElement('a'), { href: DATA_POLICY_URL, target: '_blank', rel: 'noopener', textContent: 'Autorizacion-uso-de-datos-personales.pdf' }));
-  const label = document.createElement('label'); label.textContent = 'Correo';
-  const email = Object.assign(document.createElement('input'), { type: 'email', placeholder: 'tu@correo.com', autocomplete: 'email', inputMode: 'email' });
+  const fields = document.createElement('div'); fields.className = 'fields';
+  const field = (text, attrs) => {
+    const l = document.createElement('label'); l.textContent = text;
+    const i = Object.assign(document.createElement('input'), attrs);
+    i.addEventListener('input', check);
+    l.appendChild(i); fields.appendChild(l);
+    return i;
+  };
+  const name = field('Nombre', { type: 'text', placeholder: 'Tu nombre completo', autocomplete: 'name', maxLength: 80 });
+  const phone = field('Celular', { type: 'tel', placeholder: '300 123 4567', autocomplete: 'tel', inputMode: 'tel', maxLength: 30 });
+  const email = field('Correo', { type: 'email', placeholder: 'tu@correo.com', autocomplete: 'email', inputMode: 'email', maxLength: 254 });
   email.setAttribute('autocapitalize', 'off'); email.spellcheck = false;
-  label.appendChild(email);
   const yesNo = (text, key) => {
     const row = document.createElement('div'); row.className = 'yn';
     row.appendChild(Object.assign(document.createElement('span'), { textContent: text }));
@@ -520,21 +590,27 @@ function showRegister() {
   };
   const hint = document.createElement('p'); hint.className = 'hint';
   const go = panelButton('Continuar ▶', () => {
-    const reg = { email: answers.personal ? email.value.trim() : null, sensitive: answers.sensitive, personal: answers.personal };
+    // without the personal-data authorization none of the three is kept
+    const mine = (i) => (answers.personal ? i.value.trim() : null);
+    const reg = { name: mine(name), phone: mine(phone), email: mine(email), sensitive: answers.sensitive, personal: answers.personal };
     store.set('mlquest-reg', JSON.stringify(reg));
     send({ t: 'register', ...reg });
     if (!store.get('mlquest-intro') || !char) showIntro(0); else closeQuiz();
   }, true);
   function check() {
-    const ok = EMAIL_RE.test(email.value.trim());
-    email.classList.toggle('bad', !!email.value.trim() && !ok);
-    go.disabled = answers.sensitive === null || answers.personal === null || (answers.personal && !ok);
-    hint.textContent = answers.personal === false ? 'Sin esta autorización no guardaremos tu correo, pero igual puedes jugar.'
-      : email.value.trim() && !ok ? 'Revisa tu correo.' : '';
+    const off = answers.personal === false;
+    for (const i of [name, phone, email]) i.disabled = off;
+    const digits = phone.value.replace(/\D/g, '').length;
+    const okName = name.value.trim().length >= 2, okPhone = digits >= 7 && digits <= 15, okEmail = EMAIL_RE.test(email.value.trim());
+    phone.classList.toggle('bad', !off && !!phone.value.trim() && !okPhone);
+    email.classList.toggle('bad', !off && !!email.value.trim() && !okEmail);
+    go.disabled = answers.sensitive === null || answers.personal === null || (answers.personal && !(okName && okPhone && okEmail));
+    hint.textContent = off ? 'Sin esta autorización no guardaremos tus datos, pero igual puedes jugar.'
+      : phone.value.trim() && !okPhone ? 'Revisa tu celular.'
+      : email.value.trim() && !okEmail ? 'Revisa tu correo.' : '';
   }
-  email.addEventListener('input', check);
   const nav = document.createElement('div'); nav.className = 'nav'; nav.appendChild(go);
-  f.append(doc, label, yesNo('Acepto el tratamiento de datos sensibles', 'sensitive'), yesNo('Acepto el tratamiento de datos personales', 'personal'), hint);
+  f.append(doc, fields, yesNo('Acepto el tratamiento de datos sensibles', 'sensitive'), yesNo('Acepto el tratamiento de datos personales', 'personal'), hint);
   qBody.append(f, nav);
   check();
   openQuiz('register');
@@ -640,18 +716,22 @@ function lookPicker() {
 }
 const INTRO = [
   { title: 'Elige tu personaje', body: lookPicker },
-  { title: 'Símbolos del mapa', body: () => { const g = document.createElement('div'); g.className = 'legend'; g.append(...mapSymbols()); return g; } },
-  { title: 'Controles', body: () => { const g = document.createElement('div'); g.className = 'keys'; g.append(...controlKeys()); return g; } },
-  { title: 'Tu misión', body: () => {
+  // the goal first, then how to move, and last what the map's symbols mean
+  { title: 'Tu objetivo', body: () => {
+    const wrap = document.createElement('div');
+    const goal = document.createElement('p'); goal.className = 'goal';
+    goal.appendChild(Object.assign(document.createElement('b'), { textContent: `Responde ${EVENTS_PER_PLAYER} eventos y llega a Séneca (piso ${TOP_FLOOR})` }));
     const ol = document.createElement('ol'); ol.className = 'steps';
     for (const s of [
-      'Recorre el edificio y busca los signos de admiración: cada uno es un evento de un laboratorio.',
-      `Párate debajo y oprime {act}. Responde ${EVENTS_PER_PLAYER} eventos distintos, sin límite de tiempo.`,
-      `Para cambiar de piso usa las escaleras o el ascensor (pisos S1 a ${TOP_FLOOR}).`,
-      `Cuando termines, ve con Séneca en el ${TOP_FLOOR}.º piso y oprime {act} para ver tus 3 carreras más afines.`,
+      'Busca un signo de admiración y oprime {act} debajo.',
+      `Responde ${EVENTS_PER_PLAYER} eventos distintos.`,
+      `Ve con Séneca, en el piso ${TOP_FLOOR}, y oprime {act} para ver tus carreras.`,
     ]) ol.appendChild(richText(document.createElement('li'), s));
-    return ol;
+    wrap.append(goal, ol);
+    return wrap;
   } },
+  { title: 'Controles', body: () => { const g = document.createElement('div'); g.className = 'keys'; g.append(...controlKeys()); return g; } },
+  { title: 'Símbolos del mapa', body: () => { const g = document.createElement('div'); g.className = 'legend'; g.append(...mapSymbols()); return g; } },
 ];
 function showIntro(i) {
   releaseAll();
@@ -684,6 +764,7 @@ for (const btn of document.querySelectorAll('button[data-b]')) {
 // nothing on the phone scrolls or pans: the panels are sized to fit the screen instead
 document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
 document.addEventListener('gesturestart', (e) => e.preventDefault());
+matchMedia('(orientation:portrait)').addEventListener('change', (e) => { if (e.matches) releaseAll(); });
 addEventListener('blur', () => { for (const k in state) state[k] = false; document.querySelectorAll('.on').forEach((b) => b.classList.remove('on')); send(); });
 if (!registered()) showRegister();
 connect();

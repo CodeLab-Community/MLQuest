@@ -50,7 +50,7 @@ const wss = new WebSocketServer({ server, path: '/ws' });
 const games = new Set();
 const controllers = new Set();
 const slotOf = new Map();   // phone key -> the slot it last had
-// phone id -> its sign-up: the email (null without the personal-data authorization) and both
+// phone id -> its sign-up: name, phone and email (null without the personal-data authorization) and both
 // authorizations, sent on with the student's results to Google Sheets (see recordResult)
 const registrations = new Map();
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -66,14 +66,14 @@ const SHEETS_SECRET = process.env.SHEETS_SECRET || '';
 const clip = (v, n) => String(v ?? '').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, n);
 async function recordResult(msg) {
   const reg = registrations.get(msg.player) || {};
-  // name and phone are personal data: kept only if the student authorized it at sign-up
+  // name, phone and email are personal data: kept only if the student authorized it at sign-up
   const personal = reg.personal === true;
   const top = Array.isArray(msg.top) ? msg.top : [];
   const row = {
     fecha: new Date().toISOString(),
     jugador: clip(msg.player, 60),
-    nombre: personal ? clip(msg.name, 80) : '',
-    telefono: personal ? clip(msg.phone, 30) : '',
+    nombre: personal ? clip(reg.name, 80) : '',
+    telefono: personal ? clip(reg.phone, 30) : '',
     correo: personal ? clip(reg.email, 254) : '',
     autoriza_personales: reg.personal === true ? 'Sí' : reg.personal === false ? 'No' : '',
     autoriza_sensibles: reg.sensitive === true ? 'Sí' : reg.sensitive === false ? 'No' : '',
@@ -152,11 +152,14 @@ wss.on('connection', (ws, req) => {
     if (msg.t === 'input') broadcast(games, { t: 'input', id: ws.id, slot: ws.slot, look: ws.look, s: msg.s });
     else if (msg.t === 'register') {
       const personal = msg.personal === true, sensitive = msg.sensitive === true;
+      const text = (v, n) => (personal && typeof v === 'string' ? v.trim().slice(0, n) : '');
       const email = personal && typeof msg.email === 'string' && msg.email.length <= 254 && EMAIL_RE.test(msg.email) ? msg.email : null;
-      registrations.set(ws.id, { email, personal, sensitive, at: registrations.get(ws.id)?.at || new Date().toISOString() });
+      const name = text(msg.name, 80) || null;
+      const phone = /^[\d\s()+-]{7,30}$/.test(text(msg.phone, 30)) ? text(msg.phone, 30) : null;
+      registrations.set(ws.id, { name, phone, email, personal, sensitive, at: registrations.get(ws.id)?.at || new Date().toISOString() });
     }
     else if (msg.t === 'look') { ws.look = readLook(msg); broadcast(games, { t: 'look', id: ws.id, look: ws.look }); }
-    else if (msg.t === 'finish') broadcast(games, { t: 'finish', id: ws.id, name: String(msg.name || '').slice(0, 80), phone: String(msg.phone || '').slice(0, 30) });
+    else if (msg.t === 'finish') broadcast(games, { t: 'finish', id: ws.id });
     else if (['answer', 'seen', 'floor', 'liftClose'].includes(msg.t)) broadcast(games, { ...msg, id: ws.id, slot: ws.slot });
   });
   ws.on('close', () => {
