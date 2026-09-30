@@ -444,20 +444,20 @@ function showResult(m) {
   }
   const nav = document.createElement('div'); nav.className = 'nav';
   if (m.top.length && m.collected) {
-    // the picture is made now, not on the tap: the phone only opens its share sheet when asked right
-    // as the button is touched, and waiting for the picture first would lose that
-    let file = null;
-    const share = panelButton('Preparando imagen…', () => {
-      if (!file) return;
-      if (!canShareFile(file)) { hint.textContent = 'Tu navegador no permite compartir desde aquí. Abre el juego desde su enlace https.'; return; }
-      navigator.share({ files: [file], title: 'ML Quest' }).catch(() => {});   // cancelled: nothing to do
+    // the picture is made now, so the tap only has to save it
+    let url = null;
+    const save = panelButton('Preparando imagen…', () => {
+      if (!url) return;
+      const a = Object.assign(document.createElement('a'), { href: url, download: 'mlquest-resultado.png' });
+      document.body.appendChild(a); a.click(); a.remove();
+      hint.textContent = 'Imagen descargada: súbela como historia en Instagram.';
     });
-    share.classList.add('ig'); share.disabled = true;
+    save.classList.add('ig'); save.disabled = true;
     storyImage(m.top).then((blob) => {
-      file = new File([blob], 'mlquest-resultado.png', { type: 'image/png' });
-      share.textContent = 'Compartir en Instagram'; share.disabled = false;
-    }).catch(() => { share.textContent = 'No se pudo crear la imagen'; });
-    nav.appendChild(share);
+      url = URL.createObjectURL(blob);
+      save.textContent = 'Descargar imagen'; save.disabled = false;
+    }).catch(() => { save.textContent = 'No se pudo crear la imagen'; });
+    nav.appendChild(save);
   }
   nav.appendChild(panelButton('Continuar ▶', closeQuiz, true));
   const hint = document.createElement('p'); hint.className = 'hint';
@@ -485,8 +485,7 @@ function showLift(m) {
 }
 
 // ---- the Instagram story: a 1080x1920 picture of the student's result, over the building (ML.png),
-// with their own character and their top 3 careers. Shared through the phone's share sheet, where
-// Instagram offers "Historia".
+// with their own character and their top 3 careers. Downloaded, for the student to post as a story.
 const loadImage = (src) => new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok(i); i.onerror = fail; i.src = src; });
 async function storyImage(top) {
   const W = 1080, H = 1920, FONT = 'ui-monospace, Menlo, Consolas, monospace';
@@ -543,9 +542,6 @@ async function storyImage(top) {
   shadowed('Universidad de los Andes', W / 2, 1840, 38);
   return new Promise((ok) => c.toBlob(ok, 'image/png'));
 }
-// sharing files needs a phone browser that supports it and a secure page (https)
-const canShareFile = (file) => !!(navigator.canShare && navigator.canShare({ files: [file] }));
-
 // ---- sign-up: the very first thing on a phone. The student's name, phone and email, and whether they
 // authorize the use of their personal and sensitive data. Without the personal-data authorization none
 // of the three is kept, and they still get to play.
